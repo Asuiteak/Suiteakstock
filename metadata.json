@@ -1,0 +1,6 @@
+{
+  "name": "SuiteakStock",
+  "description": "Sistema de control y gestión de stock de materiales, herramientas y reformas - Suiteak Stock.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
