@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, UserCheck, Lock, Mail, AlertCircle, Wrench } from 'lucide-react';
+import { Lock, Mail, AlertCircle, Wrench } from 'lucide-react';
 import { api } from '../lib/api';
 import { User } from '../types';
 
@@ -30,18 +30,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleQuickLogin = (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setError(null);
-    // Auto submit
-    setLoading(true);
-    api.login(demoEmail, demoPass)
-      .then((res) => onLoginSuccess(res.user))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
   };
 
   return (
@@ -93,7 +81,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Adminsuiteak o correo electrónico"
+                  placeholder="Usuario o correo electrónico"
                   required
                   className="w-full px-3.5 py-2.5 pl-10 bg-neutral-950 border border-neutral-700 rounded-xl text-sm text-white placeholder-neutral-500 focus:outline-hidden focus:border-[#EA1D24] focus:ring-1 focus:ring-[#EA1D24]"
                 />
@@ -129,43 +117,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             </button>
           </form>
 
-          {/* Quick Demo Access Bar */}
-          <div className="mt-8 pt-6 border-t border-neutral-800">
-            <span className="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 text-center">
-              Acceso rápido para demostración
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <button
-                id="btn-demo-admin"
-                type="button"
-                onClick={() => handleQuickLogin('Adminsuiteak', '12345')}
-                className="flex items-center gap-2.5 p-2.5 bg-neutral-950/60 hover:bg-neutral-800/60 border border-neutral-800 rounded-2xl text-left transition-colors group"
-              >
-                <div className="p-2 rounded-xl bg-red-500/20 text-red-400 group-hover:bg-[#EA1D24] group-hover:text-white transition-colors">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-white">Adminsuiteak</div>
-                  <div className="text-[10px] text-neutral-400">Contraseña: 12345</div>
-                </div>
-              </button>
-
-              <button
-                id="btn-demo-operario"
-                type="button"
-                onClick={() => handleQuickLogin('carlos@reformas.com', 'operario123')}
-                className="flex items-center gap-2.5 p-2.5 bg-neutral-950/60 hover:bg-neutral-800/60 border border-neutral-800 rounded-2xl text-left transition-colors group"
-              >
-                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                  <UserCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-white">Carlos Operario</div>
-                  <div className="text-[10px] text-neutral-400">operario123</div>
-                </div>
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* System info */}
