@@ -31,11 +31,31 @@ Abre la terminal en la carpeta raíz del proyecto y ejecuta:
 npm install
 ```
 
-*(Esto descargará todas las librerías necesarias de React, Tailwind CSS, Express y la base de datos SQLite).*
+*(Esto descargará todas las librerías necesarias de React, Tailwind CSS, Express y PostgreSQL).* 
 
 ---
 
-### Paso 4: Iniciar la aplicación
+### Paso 4: Configurar variables de entorno
+Copia el archivo `.env.example` a `.env` y rellena los valores reales:
+
+```bash
+copy .env.example .env
+```
+
+Debe incluir, al menos:
+
+```env
+DATABASE_URL="postgresql://postgres:TU_PASSWORD@db.TU_PROYECTO.supabase.co:5432/postgres?sslmode=require"
+JWT_SECRET="tu-clave-secreta"
+APP_URL="https://tu-app-render-url"
+PORT="3000"
+```
+
+> Si `DATABASE_URL` no está presente, la aplicación puede usar el modo local con SQLite como fallback, pero para producción y uso compartido debe usar PostgreSQL.
+
+---
+
+### Paso 5: Iniciar la aplicación
 
 #### Modo Desarrollo (con recarga automática de cambios):
 ```bash
@@ -82,12 +102,15 @@ Dado que el servidor escucha en `0.0.0.0:3000`, puedes acceder desde cualquier t
 
 ---
 
-## 🗄️ Persistencia de Datos (Base de Datos Local)
+## 🗄️ Persistencia de Datos y respaldo
 
-- La base de datos es **SQLite** (`sql.js`), por lo que **no necesitas instalar ningún servidor externo** (ni MySQL ni PostgreSQL).
-- Todos los datos se almacenan y persisten automáticamente en el archivo:
-  `data/reformas.sqlite`
-- Al hacer una copia de seguridad o mudar de equipo, basta con copiar la carpeta `data/`.
+- La aplicación está diseñada para usar **PostgreSQL** con `DATABASE_URL` en producción.
+- Si la variable `DATABASE_URL` no existe, el proyecto puede caer a un modo local con SQLite como fallback temporal.
+- Para uso real en empresa y acceso compartido por varios usuarios, la opción recomendada es:
+  - **Supabase** para la base de datos
+  - **Render** o similar para el hosting
+  - **pg_dump** en un equipo local para hacer backups periódicos
+- La base de datos no debe depender de un archivo local en el servidor del hosting, porque ese archivo puede desaparecer al reiniciar el contenedor.
 
 ---
 

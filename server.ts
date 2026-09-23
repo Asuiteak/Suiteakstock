@@ -39,7 +39,7 @@ import {
 } from './server/auth';
 import { MovementType } from './src/types';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
   await initDatabase();
@@ -70,14 +70,14 @@ async function startServer() {
   });
 
   // Auth: Login
-  app.post('/api/auth/login', (req: Request, res: Response) => {
+  app.post('/api/auth/login', async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
         return res.status(400).json({ error: 'Email y contraseña requeridos' });
       }
 
-      const user = getUserByEmail(email.trim().toLowerCase());
+      const user = await getUserByEmail(email.trim().toLowerCase());
       if (!user) {
         return res.status(401).json({ error: 'Credenciales inválidas' });
       }
@@ -109,9 +109,9 @@ async function startServer() {
   });
 
   // Dashboard Stats
-  app.get('/api/stats', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/stats', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const stats = getDashboardStats();
+      const stats = await getDashboardStats();
       return res.json(stats);
     } catch (err: any) {
       console.error('Error en /api/stats:', err);
@@ -120,10 +120,10 @@ async function startServer() {
   });
 
   // Products: List & Search
-  app.get('/api/products', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/products', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { query, category, low_stock, project_id } = req.query;
-      const products = getProducts({
+      const products = await getProducts({
         query: query ? String(query) : undefined,
         category: category ? String(category) : undefined,
         low_stock_only: low_stock === 'true',
@@ -137,9 +137,9 @@ async function startServer() {
   });
 
   // Products: Get Single
-  app.get('/api/products/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/products/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const product = getProductById(req.params.id);
+      const product = await getProductById(req.params.id);
       if (!product) {
         return res.status(404).json({ error: 'Producto no encontrado' });
       }
@@ -150,7 +150,7 @@ async function startServer() {
   });
 
   // Products: Create (Admin Only)
-  app.post('/api/products', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/products', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const {
         codigo,
@@ -220,7 +220,7 @@ async function startServer() {
         );
       }
 
-      const created = getProductById(id);
+      const created = await getProductById(id);
       return res.status(201).json(created);
     } catch (err: any) {
       console.error('Error creando producto:', err);
@@ -229,7 +229,7 @@ async function startServer() {
   });
 
   // Products: Update (Admin for all fields, Any authenticated user for provider)
-  app.put('/api/products/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/products/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const {
@@ -245,7 +245,7 @@ async function startServer() {
         proyecto_id
       } = req.body;
 
-      const current = getProductById(id);
+      const current = await getProductById(id);
       if (!current) {
         return res.status(404).json({ error: 'Producto no encontrado' });
       }
@@ -274,12 +274,12 @@ async function startServer() {
           [proveedor_id ? (proveedor_id || null) : null, id]
         );
 
-        const updated = getProductById(id);
+        const updated = await getProductById(id);
         return res.json(updated);
       }
 
       if (codigo && codigo.trim().toUpperCase() !== current.codigo) {
-        const duplicate = queryOne('SELECT id FROM products WHERE LOWER(codigo) = LOWER(?) AND id != ?', [codigo.trim(), id]);
+        const duplicate = await queryOne('SELECT id FROM products WHERE LOWER(codigo) = LOWER(?) AND id != ?', [codigo.trim(), id]);
         if (duplicate) {
           return res.status(400).json({ error: `El código "${codigo}" ya está en uso por otro producto` });
         }
@@ -320,7 +320,7 @@ async function startServer() {
         ]
       );
 
-      const updated = getProductById(id);
+      const updated = await getProductById(id);
       return res.json(updated);
     } catch (err: any) {
       console.error('Error actualizando producto:', err);
@@ -329,10 +329,10 @@ async function startServer() {
   });
 
   // Products: Delete (Admin Only)
-  app.delete('/api/products/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/products/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const product = getProductById(id);
+      const product = await getProductById(id);
       if (!product) {
         return res.status(404).json({ error: 'Producto no encontrado' });
       }
@@ -350,9 +350,9 @@ async function startServer() {
   });
 
   // Categories: List
-  app.get('/api/categories', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/categories', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const categories = getCategories();
+      const categories = await getCategories();
       return res.json(categories);
     } catch (err: any) {
       return res.status(500).json({ error: 'Error al consultar categorías' });
@@ -360,14 +360,14 @@ async function startServer() {
   });
 
   // Categories: Create (Admin Only)
-  app.post('/api/categories', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/categories', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { nombre, descripcion, nomenclatura } = req.body;
       if (!nombre || !nombre.trim()) {
         return res.status(400).json({ error: 'El nombre de la familia/categoría es obligatorio' });
       }
       const trimmed = nombre.trim();
-      const existing = queryOne<any>('SELECT id FROM categories WHERE LOWER(TRIM(nombre)) = LOWER(?)', [trimmed]);
+      const existing = await queryOne<any>('SELECT id FROM categories WHERE LOWER(TRIM(nombre)) = LOWER(?)', [trimmed]);
       if (existing) {
         return res.status(400).json({ error: `La familia o categoría "${trimmed}" ya existe` });
       }
@@ -379,7 +379,7 @@ async function startServer() {
         [id, trimmed, descripcion ? descripcion.trim() : null, nom, 10]
       );
 
-      const all = getCategories();
+      const all = await getCategories();
       const created = all.find((c) => c.id === id);
       return res.status(201).json(created);
     } catch (err: any) {
@@ -389,11 +389,11 @@ async function startServer() {
   });
 
   // Categories: Update (Admin Only)
-  app.put('/api/categories/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/categories/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { nombre, descripcion, nomenclatura } = req.body;
-      const current = getCategoryById(id);
+      const current = await getCategoryById(id);
       if (!current) {
         return res.status(404).json({ error: 'Categoría no encontrada' });
       }
@@ -403,7 +403,7 @@ async function startServer() {
       }
 
       const trimmed = nombre.trim();
-      const duplicate = queryOne<any>('SELECT id FROM categories WHERE LOWER(TRIM(nombre)) = LOWER(?) AND id != ?', [trimmed, id]);
+      const duplicate = await queryOne<any>('SELECT id FROM categories WHERE LOWER(TRIM(nombre)) = LOWER(?) AND id != ?', [trimmed, id]);
       if (duplicate) {
         return res.status(400).json({ error: `Ya existe otra categoría con el nombre "${trimmed}"` });
       }
@@ -420,7 +420,7 @@ async function startServer() {
         execute('UPDATE products SET categoria = ? WHERE LOWER(TRIM(categoria)) = LOWER(?)', [trimmed, oldName.trim()]);
       }
 
-      const all = getCategories();
+      const all = await getCategories();
       const updated = all.find((c) => c.id === id);
       return res.json(updated);
     } catch (err: any) {
@@ -430,10 +430,10 @@ async function startServer() {
   });
 
   // Categories: Delete (Admin Only)
-  app.delete('/api/categories/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/categories/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const current = getCategoryById(id);
+      const current = await getCategoryById(id);
       if (!current) {
         return res.status(404).json({ error: 'Categoría no encontrada' });
       }
@@ -453,10 +453,10 @@ async function startServer() {
   });
 
   // Movements: List
-  app.get('/api/movements', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/movements', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { tipo, producto_id, proyecto_id, desde, hasta } = req.query;
-      const movements = getMovements({
+      const movements = await getMovements({
         tipo: tipo ? String(tipo) : undefined,
         producto_id: producto_id ? String(producto_id) : undefined,
         proyecto_id: proyecto_id ? String(proyecto_id) : undefined,
@@ -471,7 +471,7 @@ async function startServer() {
   });
 
   // Movements: Register (Entrada, Salida, Reserva)
-  app.post('/api/movements', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/movements', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const {
         producto_id,
@@ -495,7 +495,7 @@ async function startServer() {
         return res.status(400).json({ error: 'La cantidad del movimiento debe ser un número entero mayor que cero' });
       }
 
-      const product = getProductById(producto_id);
+      const product = await getProductById(producto_id);
       if (!product) {
         return res.status(404).json({ error: 'Producto no encontrado' });
       }
@@ -509,7 +509,7 @@ async function startServer() {
       }
 
       // "El stock no puede ser negativo. Si una salida supera el stock disponible, se bloquea y se muestra error."
-      const metrics = getProductStockMetrics(producto_id);
+      const metrics = await getProductStockMetrics(producto_id);
       if (tipo === 'salida') {
         if (qty > metrics.stock_actual) {
           return res.status(400).json({
@@ -550,9 +550,9 @@ async function startServer() {
         ]
       );
 
-      const movements = getMovements({ producto_id });
+      const movements = await getMovements({ producto_id });
       const newMovement = movements.find((m) => m.id === movementId) || null;
-      const updatedProduct = getProductById(producto_id);
+      const updatedProduct = await getProductById(producto_id);
 
       return res.status(201).json({
         movement: newMovement,
@@ -566,10 +566,10 @@ async function startServer() {
   });
 
   // Movements: Undo / Delete (Admin or Movement Creator)
-  app.delete('/api/movements/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/movements/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const movement = getMovementById(id);
+      const movement = await getMovementById(id);
       if (!movement) {
         return res.status(404).json({ error: 'Movimiento no encontrado' });
       }
@@ -581,7 +581,7 @@ async function startServer() {
 
       // Check consistency when undoing an "entrada" (cannot leave physical stock negative)
       if (movement.tipo === 'entrada') {
-        const metrics = getProductStockMetrics(movement.producto_id);
+        const metrics = await getProductStockMetrics(movement.producto_id);
         if (metrics.stock_actual - movement.cantidad < 0) {
           return res.status(400).json({
             error: `No se puede deshacer esta entrada porque parte o la totalidad de las unidades ya han salido de almacén. Stock físico actual: ${metrics.stock_actual}, cantidad a revertir: ${movement.cantidad}.`
@@ -590,7 +590,7 @@ async function startServer() {
       }
 
       execute('DELETE FROM movements WHERE id = ?', [id]);
-      const updatedProduct = getProductById(movement.producto_id);
+      const updatedProduct = await getProductById(movement.producto_id);
 
       return res.json({
         success: true,
@@ -604,9 +604,9 @@ async function startServer() {
   });
 
   // Projects: List
-  app.get('/api/projects', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/projects', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const projects = getProjects();
+      const projects = await getProjects();
       return res.json(projects);
     } catch (err: any) {
       return res.status(500).json({ error: 'Error al consultar proyectos' });
@@ -614,16 +614,16 @@ async function startServer() {
   });
 
   // Projects: Detail (with movements & materials summary)
-  app.get('/api/projects/:id/details', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/projects/:id/details', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const project = getProjectById(id);
+      const project = await getProjectById(id);
       if (!project) {
         return res.status(404).json({ error: 'Proyecto no encontrado' });
       }
 
-      const projectMovements = getMovements({ proyecto_id: id });
-      const dedicatedProducts = getProducts({ project_id: id });
+      const projectMovements = await getMovements({ proyecto_id: id });
+      const dedicatedProducts = await getProducts({ project_id: id });
 
       // Summary of materials consumed vs reserved
       const materialsSummaryMap: Record<string, {
@@ -666,7 +666,7 @@ async function startServer() {
   });
 
   // Projects: Create
-  app.post('/api/projects', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/projects', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { nombre, cliente, direccion, estado, fecha_inicio, fecha_fin } = req.body;
       if (!nombre || !nombre.trim()) {
@@ -696,7 +696,7 @@ async function startServer() {
         ]
       );
 
-      const created = getProjectById(id);
+      const created = await getProjectById(id);
       return res.status(201).json(created);
     } catch (err: any) {
       console.error('Error creando proyecto:', err);
@@ -705,11 +705,11 @@ async function startServer() {
   });
 
   // Projects: Update
-  app.put('/api/projects/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/projects/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { nombre, cliente, direccion, estado, fecha_inicio, fecha_fin } = req.body;
-      const current = getProjectById(id);
+      const current = await getProjectById(id);
       if (!current) {
         return res.status(404).json({ error: 'Proyecto no encontrado' });
       }
@@ -737,7 +737,7 @@ async function startServer() {
         ]
       );
 
-      const updated = getProjectById(id);
+      const updated = await getProjectById(id);
       return res.json(updated);
     } catch (err: any) {
       return res.status(500).json({ error: 'Error al actualizar proyecto' });
@@ -745,10 +745,10 @@ async function startServer() {
   });
 
   // Projects: Delete (Admin Only)
-  app.delete('/api/projects/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/projects/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const project = getProjectById(id);
+      const project = await getProjectById(id);
       if (!project) {
         return res.status(404).json({ error: 'Proyecto u obra no encontrada' });
       }
@@ -767,9 +767,9 @@ async function startServer() {
   });
 
   // Providers: List
-  app.get('/api/providers', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/providers', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const providers = getProviders();
+      const providers = await getProviders();
       return res.json(providers);
     } catch (err: any) {
       return res.status(500).json({ error: 'Error al consultar proveedores' });
@@ -777,7 +777,7 @@ async function startServer() {
   });
 
   // Providers: Create (Admin Only)
-  app.post('/api/providers', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/providers', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { nombre, contacto, email, telefono, direccion, logo_url } = req.body;
       if (!nombre || !nombre.trim()) {
@@ -806,11 +806,11 @@ async function startServer() {
   });
 
   // Providers: Update (Admin Only)
-  app.put('/api/providers/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/providers/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { nombre, contacto, email, telefono, direccion, logo_url } = req.body;
-      const provider = getProviderById(id);
+      const provider = await getProviderById(id);
       if (!provider) {
         return res.status(404).json({ error: 'Proveedor no encontrado' });
       }
@@ -832,7 +832,7 @@ async function startServer() {
         ]
       );
 
-      const updated = getProviderById(id);
+      const updated = await getProviderById(id);
       return res.json(updated);
     } catch (err: any) {
       return res.status(500).json({ error: 'Error al actualizar proveedor' });
@@ -840,10 +840,10 @@ async function startServer() {
   });
 
   // Providers: Delete (Admin Only)
-  app.delete('/api/providers/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/providers/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const provider = getProviderById(id);
+      const provider = await getProviderById(id);
       if (!provider) {
         return res.status(404).json({ error: 'Proveedor no encontrado' });
       }
@@ -859,9 +859,9 @@ async function startServer() {
   });
 
   // Users: List (for admin and movement assignment)
-  app.get('/api/users', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/users', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const users = getUsers();
+      const users = await getUsers();
       return res.json(users);
     } catch (err: any) {
       return res.status(500).json({ error: 'Error al consultar usuarios' });
@@ -869,7 +869,7 @@ async function startServer() {
   });
 
   // Users: Create (Admin Only)
-  app.post('/api/users', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/users', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { nombre, email, password, rol } = req.body;
       if (!nombre || !nombre.trim()) {
@@ -887,7 +887,7 @@ async function startServer() {
       const userRole = rol === 'admin' ? 'admin' : 'operario';
 
       // Check if email or username already taken
-      const existing = queryOne(
+      const existing = await queryOne(
         `SELECT id FROM users WHERE LOWER(email) = ? OR LOWER(nombre) = ?`,
         [cleanEmail, cleanNombre.toLowerCase()]
       );
@@ -905,7 +905,7 @@ async function startServer() {
         [userId, cleanNombre, cleanEmail, passwordHash, userRole, now]
       );
 
-      const createdUser = getUserById(userId);
+      const createdUser = await getUserById(userId);
       return res.status(201).json(createdUser);
     } catch (err: any) {
       console.error('Error creando usuario:', err);
@@ -914,12 +914,12 @@ async function startServer() {
   });
 
   // Users: Update (Admin Only)
-  app.put('/api/users/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/users/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { nombre, email, password, rol } = req.body;
 
-      const user = getUserById(id);
+      const user = await getUserById(id);
       if (!user) {
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
@@ -929,7 +929,7 @@ async function startServer() {
       const userRole = rol ? (rol === 'admin' ? 'admin' : 'operario') : user.rol;
 
       // Uniqueness check for email / name
-      const duplicate = queryOne(
+      const duplicate = await queryOne(
         `SELECT id FROM users WHERE (LOWER(email) = ? OR LOWER(nombre) = ?) AND id != ?`,
         [cleanEmail, cleanNombre.toLowerCase(), id]
       );
@@ -939,7 +939,7 @@ async function startServer() {
 
       // Check if trying to remove admin role from the only admin
       if (user.rol === 'admin' && userRole !== 'admin') {
-        const adminCount = queryOne(`SELECT COUNT(*) as count FROM users WHERE rol = 'admin'`);
+        const adminCount = await queryOne(`SELECT COUNT(*) as count FROM users WHERE rol = 'admin'`);
         if (adminCount && Number(adminCount.count) <= 1) {
           return res.status(400).json({ error: 'No se puede quitar el rol al único administrador del sistema.' });
         }
@@ -958,7 +958,7 @@ async function startServer() {
         );
       }
 
-      const updated = getUserById(id);
+      const updated = await getUserById(id);
       return res.json(updated);
     } catch (err: any) {
       console.error('Error actualizando usuario:', err);
@@ -967,7 +967,7 @@ async function startServer() {
   });
 
   // Users: Delete (Admin Only)
-  app.delete('/api/users/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
 
@@ -975,13 +975,13 @@ async function startServer() {
         return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta de usuario activa.' });
       }
 
-      const targetUser = getUserById(id);
+      const targetUser = await getUserById(id);
       if (!targetUser) {
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
 
       if (targetUser.rol === 'admin') {
-        const adminCount = queryOne(`SELECT COUNT(*) as count FROM users WHERE rol = 'admin'`);
+        const adminCount = await queryOne(`SELECT COUNT(*) as count FROM users WHERE rol = 'admin'`);
         if (adminCount && Number(adminCount.count) <= 1) {
           return res.status(400).json({ error: 'No se puede eliminar el único administrador del sistema.' });
         }
@@ -1000,10 +1000,10 @@ async function startServer() {
   // ==========================================
 
   // Requests: List
-  app.get('/api/requests', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/requests', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { estado, tipo_solicitud, proyecto_id, usuario_id, query } = req.query;
-      const requests = getMaterialRequests({
+      const requests = await getMaterialRequests({
         estado: estado as string,
         tipo_solicitud: tipo_solicitud as string,
         proyecto_id: proyecto_id as string,
@@ -1018,10 +1018,10 @@ async function startServer() {
   });
 
   // Requests: Get By ID
-  app.get('/api/requests/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/requests/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const request = getMaterialRequestById(id);
+      const request = await getMaterialRequestById(id);
       if (!request) {
         return res.status(404).json({ error: 'Solicitud no encontrada' });
       }
@@ -1032,7 +1032,7 @@ async function startServer() {
   });
 
   // Requests: Create (Operarios and Admins)
-  app.post('/api/requests', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/requests', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const {
         tipo_solicitud,
@@ -1066,7 +1066,7 @@ async function startServer() {
       let isNewMaterial = Boolean(es_material_nuevo);
 
       if (prodId) {
-        const prod = getProductById(prodId);
+        const prod = await getProductById(prodId);
         if (prod) {
           finalName = prod.nombre;
           finalCategory = prod.categoria;
@@ -1114,7 +1114,7 @@ async function startServer() {
       );
 
       // Audit history
-      addRequestHistoryEntry(
+      await addRequestHistoryEntry(
         id,
         userId,
         req.user?.nombre || 'Usuario',
@@ -1124,7 +1124,7 @@ async function startServer() {
         JSON.stringify({ material: finalName, cantidad: qty, unidad: requestUnit, prioridad: requestPriority, proyecto_id })
       );
 
-      const created = getMaterialRequestById(id);
+      const created = await getMaterialRequestById(id);
       return res.status(201).json(created);
     } catch (err: any) {
       console.error('Error creando solicitud:', err);
@@ -1133,12 +1133,12 @@ async function startServer() {
   });
 
   // Requests: Update Status & Resolution (Admin or Owner)
-  app.put('/api/requests/:id/status', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/requests/:id/status', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { estado, resolucion_notas, registrar_movimiento, tipo_movimiento } = req.body;
 
-      const current = getMaterialRequestById(id);
+      const current = await getMaterialRequestById(id);
       if (!current) {
         return res.status(404).json({ error: 'Solicitud no encontrada' });
       }
@@ -1176,7 +1176,7 @@ async function startServer() {
       );
 
       // Audit history entry
-      addRequestHistoryEntry(
+      await addRequestHistoryEntry(
         id,
         req.user!.id,
         req.user!.nombre,
@@ -1219,7 +1219,7 @@ async function startServer() {
         };
       }
 
-      const updated = getMaterialRequestById(id);
+      const updated = await getMaterialRequestById(id);
       return res.json({
         request: updated,
         movimientoCreado
@@ -1231,10 +1231,10 @@ async function startServer() {
   });
 
   // Requests: Edit Request (Admin or Owner)
-  app.put('/api/requests/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/requests/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const current = getMaterialRequestById(id);
+      const current = await getMaterialRequestById(id);
       if (!current) {
         return res.status(404).json({ error: 'Solicitud no encontrada' });
       }
@@ -1332,7 +1332,7 @@ async function startServer() {
         ? `Modificado por ${req.user!.nombre} (${req.user!.rol}): ${changes.join(', ')}`
         : `Datos revisados y actualizados por ${req.user!.nombre}`;
 
-      addRequestHistoryEntry(
+      await addRequestHistoryEntry(
         id,
         req.user!.id,
         req.user!.nombre,
@@ -1342,7 +1342,7 @@ async function startServer() {
         JSON.stringify(newVals)
       );
 
-      const updated = getMaterialRequestById(id);
+      const updated = await getMaterialRequestById(id);
       return res.json(updated);
     } catch (err: any) {
       console.error('Error editando solicitud:', err);
@@ -1351,10 +1351,10 @@ async function startServer() {
   });
 
   // Requests: Get History
-  app.get('/api/requests/:id/history', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/requests/:id/history', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const history = getRequestHistory(id);
+      const history = await getRequestHistory(id);
       return res.json(history);
     } catch (err: any) {
       return res.status(500).json({ error: 'Error al consultar historial de la solicitud' });
@@ -1362,10 +1362,10 @@ async function startServer() {
   });
 
   // Requests: Delete
-  app.delete('/api/requests/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/requests/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const request = getMaterialRequestById(id);
+      const request = await getMaterialRequestById(id);
       if (!request) {
         return res.status(404).json({ error: 'Solicitud no encontrada' });
       }
@@ -1388,10 +1388,10 @@ async function startServer() {
   // ==========================================
 
   // Orders: List
-  app.get('/api/orders', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/orders', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { estado, proveedor_id, proyecto_id, query } = req.query;
-      const orders = getOrders({
+      const orders = await getOrders({
         estado: estado as string,
         proveedor_id: proveedor_id as string,
         proyecto_id: proyecto_id as string,
@@ -1405,10 +1405,10 @@ async function startServer() {
   });
 
   // Orders: Get Single
-  app.get('/api/orders/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/orders/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const order = getOrderById(id);
+      const order = await getOrderById(id);
       if (!order) {
         return res.status(404).json({ error: 'Pedido no encontrado' });
       }
@@ -1419,7 +1419,7 @@ async function startServer() {
   });
 
   // Orders: Create (Admin Only)
-  app.post('/api/orders', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/orders', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const {
         solicitud_id,
@@ -1467,7 +1467,7 @@ async function startServer() {
       let provPhone = proveedor_telefono?.trim() || null;
       let provEmail = proveedor_email?.trim() || null;
       if (proveedor_id) {
-        const prov = getProviderById(proveedor_id);
+        const prov = await getProviderById(proveedor_id);
         if (prov) {
           provName = prov.nombre;
           provPhone = provPhone || prov.telefono || null;
@@ -1478,7 +1478,7 @@ async function startServer() {
       // Fetch project name if project id given
       let projName = proyecto_nombre?.trim() || null;
       if (proyecto_id && !projName) {
-        const proj = getProjectById(proyecto_id);
+        const proj = await getProjectById(proyecto_id);
         if (proj) projName = proj.nombre;
       }
 
@@ -1531,7 +1531,7 @@ async function startServer() {
           [now, solicitud_id]
         );
 
-        addRequestHistoryEntry(
+        await addRequestHistoryEntry(
           solicitud_id,
           req.user!.id,
           req.user!.nombre,
@@ -1550,7 +1550,7 @@ async function startServer() {
         );
       }
 
-      const created = getOrderById(id);
+      const created = await getOrderById(id);
       return res.status(201).json(created);
     } catch (err: any) {
       console.error('Error creando pedido:', err);
@@ -1559,10 +1559,10 @@ async function startServer() {
   });
 
   // Orders: Update
-  app.put('/api/orders/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/orders/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const current = getOrderById(id);
+      const current = await getOrderById(id);
       if (!current) {
         return res.status(404).json({ error: 'Pedido no encontrado' });
       }
@@ -1621,7 +1621,7 @@ async function startServer() {
 
       // If status changed and linked to request, update request history
       if (current.solicitud_id && newStatus !== current.estado) {
-        addRequestHistoryEntry(
+        await addRequestHistoryEntry(
           current.solicitud_id,
           req.user!.id,
           req.user!.nombre,
@@ -1632,7 +1632,7 @@ async function startServer() {
         );
       }
 
-      const updated = getOrderById(id);
+      const updated = await getOrderById(id);
       return res.json(updated);
     } catch (err: any) {
       console.error('Error actualizando pedido:', err);
@@ -1642,10 +1642,10 @@ async function startServer() {
 
   // Orders: Receive Order into Stock & Catalog
   // "Cuando este pedido se registre como nueva entrada pasara al apartado de productos y se podra catalogar."
-  app.post('/api/orders/:id/receive', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/orders/:id/receive', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const order = getOrderById(id);
+      const order = await getOrderById(id);
       if (!order) {
         return res.status(404).json({ error: 'Pedido no encontrado' });
       }
@@ -1664,12 +1664,8 @@ async function startServer() {
 
       // If product does not yet exist in catalog, create it now!
       if (!targetProductId) {
-        // Generate product code if not supplied
-        const generatedCode = codigo_producto?.trim()?.toUpperCase() || 
-          ('PRD-' + Math.floor(1000 + Math.random() * 9000));
-
-        // Check if code exists
-        const existingProd = queryOne('SELECT id FROM products WHERE LOWER(codigo) = LOWER(?)', [generatedCode]);
+        const generatedCode = codigo_producto?.trim()?.toUpperCase() || ('PRD-' + Math.floor(1000 + Math.random() * 9000));
+        const existingProd = await queryOne('SELECT id FROM products WHERE LOWER(codigo) = LOWER(?)', [generatedCode]);
         if (existingProd) {
           targetProductId = existingProd.id;
           targetProductCode = generatedCode;
@@ -1701,11 +1697,9 @@ async function startServer() {
           targetProductCode = generatedCode;
         }
       } else {
-        // Mark product status as active
         execute(`UPDATE products SET estado = 'activo' WHERE id = ?`, [targetProductId]);
       }
 
-      // Register an "entrada" movement in warehouse for the received items
       const movementId = 'mov-ent-' + Date.now();
       const movementObs = `Entrada por recepción de pedido ${order.numero_pedido}${albaran ? ` (Albarán: ${albaran})` : ''} de proveedor ${order.proveedor_nombre || 'distribuidor'}`;
 
@@ -1723,7 +1717,6 @@ async function startServer() {
         ]
       );
 
-      // Update order status to 'recibido'
       execute(
         `UPDATE orders SET 
           estado = 'recibido',
@@ -1743,7 +1736,6 @@ async function startServer() {
         ]
       );
 
-      // If linked to a request, advance request to 'preparado' and log history!
       if (order.solicitud_id) {
         execute(
           `UPDATE material_requests SET 
@@ -1755,7 +1747,7 @@ async function startServer() {
           [targetProductId, now, order.solicitud_id]
         );
 
-        addRequestHistoryEntry(
+        await addRequestHistoryEntry(
           order.solicitud_id,
           req.user!.id,
           req.user!.nombre,
@@ -1766,8 +1758,8 @@ async function startServer() {
         );
       }
 
-      const updatedOrder = getOrderById(id);
-      const catalogedProduct = getProductById(targetProductId);
+      const updatedOrder = await getOrderById(id);
+      const catalogedProduct = await getProductById(targetProductId);
 
       return res.json({
         success: true,
@@ -1782,10 +1774,10 @@ async function startServer() {
   });
 
   // Orders: Delete
-  app.delete('/api/orders/:id', authenticateToken, requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/orders/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const order = getOrderById(id);
+      const order = await getOrderById(id);
       if (!order) {
         return res.status(404).json({ error: 'Pedido no encontrado' });
       }

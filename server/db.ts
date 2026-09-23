@@ -1,4 +1,5 @@
 import initSqlJs, { Database } from 'sql.js';
+import { Pool } from 'pg';
 import fs from 'fs';
 import path from 'path';
 import { hashPassword } from './auth';
@@ -6,11 +7,71 @@ import { Product, Movement, Project, Provider, User, DashboardStats, MaterialReq
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'reformas.sqlite');
+const USE_POSTGRES = Boolean(process.env.DATABASE_URL);
 
-let db: Database;
+let db: Database | null = null;
+let pgPool: Pool | null = null;
 
-export async function initDatabase(): Promise<Database> {
-  if (db) return db;
+function normalizeSqlForPostgres(sql: string, params: any[] = []): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => {
+    index += 1;
+    return `$${index}`;
+  });
+}
+
+async function runSql(sql: string, params: any[] = []): Promise<any> {
+  if (USE_POSTGRES && pgPool) {
+    return pgPool.query(normalizeSqlForPostgres(sql, params), params);
+  }
+
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  return db.run(sql, params);
+}
+
+async function queryAllRows<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+  if (USE_POSTGRES && pgPool) {
+    const { rows } = await pgPool.query(normalizeSqlForPostgres(sql, params), params);
+    return rows as T[];
+  }
+
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const rows: T[] = [];
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject() as unknown as T);
+  }
+  stmt.free();
+  return rows;
+}
+
+async function querySingleRow<T = any>(sql: string, params: any[] = []): Promise<T | null> {
+  const rows = await queryAllRows<T>(sql, params);
+  return rows.length > 0 ? rows[0] : null;
+}
+
+export async function initDatabase(): Promise<Database | null> {
+  if (db || pgPool) return db;
+
+  if (USE_POSTGRES) {
+    pgPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined,
+    });
+
+    await createTables();
+    await seedInitialData();
+    await ensureDefaultUsers();
+    await ensureDefaultCategories();
+    return null;
+  }
 
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -32,17 +93,17 @@ export async function initDatabase(): Promise<Database> {
     console.log('Nueva base de datos SQLite inicializada');
   }
 
-  createTables();
-  seedInitialData();
-  ensureDefaultUsers();
-  ensureDefaultCategories();
+  await createTables();
+  await seedInitialData();
+  await ensureDefaultUsers();
+  await ensureDefaultCategories();
   persistDatabase();
 
   return db;
 }
 
 export function persistDatabase() {
-  if (!db) return;
+  if (USE_POSTGRES || !db) return;
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
@@ -52,7 +113,168 @@ export function persistDatabase() {
   }
 }
 
-function createTables() {
+async function createTables() {
+  if (USE_POSTGRES && pgPool) {
+    await runSql(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        rol TEXT NOT NULL,
+        fecha_creacion TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS providers (
+        id TEXT PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        contacto TEXT,
+        email TEXT,
+        telefono TEXT,
+        direccion TEXT,
+        logo_url TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        cliente TEXT NOT NULL,
+        direccion TEXT,
+        estado TEXT NOT NULL DEFAULT 'activo',
+        fecha_creacion TEXT NOT NULL,
+        fecha_inicio TEXT,
+        fecha_fin TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS categories (
+        id TEXT PRIMARY KEY,
+        nombre TEXT UNIQUE NOT NULL,
+        descripcion TEXT,
+        nomenclatura TEXT,
+        orden INTEGER DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS products (
+        id TEXT PRIMARY KEY,
+        codigo TEXT UNIQUE NOT NULL,
+        nombre TEXT NOT NULL,
+        descripcion TEXT,
+        imagen_url TEXT,
+        categoria TEXT NOT NULL,
+        stock_minimo INTEGER NOT NULL DEFAULT 5,
+        proveedor_id TEXT,
+        proyecto_id TEXT,
+        fecha_creacion TEXT NOT NULL,
+        referencia TEXT,
+        estado TEXT DEFAULT 'activo',
+        FOREIGN KEY (proveedor_id) REFERENCES providers(id),
+        FOREIGN KEY (proyecto_id) REFERENCES projects(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS movements (
+        id TEXT PRIMARY KEY,
+        producto_id TEXT NOT NULL,
+        tipo TEXT NOT NULL,
+        cantidad INTEGER NOT NULL,
+        fecha TEXT NOT NULL,
+        usuario_id TEXT NOT NULL,
+        proyecto_id TEXT,
+        observaciones TEXT,
+        FOREIGN KEY (producto_id) REFERENCES products(id),
+        FOREIGN KEY (usuario_id) REFERENCES users(id),
+        FOREIGN KEY (proyecto_id) REFERENCES projects(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS material_requests (
+        id TEXT PRIMARY KEY,
+        tipo_solicitud TEXT NOT NULL,
+        es_material_nuevo INTEGER NOT NULL DEFAULT 0,
+        producto_id TEXT,
+        material_nombre TEXT NOT NULL,
+        material_descripcion TEXT,
+        material_categoria TEXT,
+        proveedor_sugerido TEXT,
+        cantidad REAL NOT NULL,
+        unidad TEXT NOT NULL DEFAULT 'uds',
+        proyecto_id TEXT,
+        usuario_id TEXT NOT NULL,
+        prioridad TEXT NOT NULL DEFAULT 'normal',
+        fecha_solicitud TEXT NOT NULL,
+        fecha_necesidad TEXT,
+        notas TEXT,
+        estado TEXT NOT NULL DEFAULT 'pendiente',
+        resolucion_notas TEXT,
+        fecha_actualizacion TEXT NOT NULL,
+        FOREIGN KEY (producto_id) REFERENCES products(id),
+        FOREIGN KEY (usuario_id) REFERENCES users(id),
+        FOREIGN KEY (proyecto_id) REFERENCES projects(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS orders (
+        id TEXT PRIMARY KEY,
+        numero_pedido TEXT UNIQUE NOT NULL,
+        solicitud_id TEXT,
+        producto_id TEXT,
+        producto_codigo TEXT,
+        producto_nombre TEXT NOT NULL,
+        producto_categoria TEXT,
+        referencia TEXT,
+        proveedor_id TEXT,
+        proveedor_nombre TEXT,
+        proveedor_telefono TEXT,
+        proveedor_email TEXT,
+        cantidad REAL NOT NULL,
+        unidad TEXT NOT NULL DEFAULT 'uds',
+        precio_estimado REAL,
+        proyecto_id TEXT,
+        proyecto_nombre TEXT,
+        usuario_id TEXT NOT NULL,
+        usuario_nombre TEXT,
+        operario_solicitante_id TEXT,
+        operario_solicitante_nombre TEXT,
+        fecha_pedido TEXT NOT NULL,
+        fecha_estimada_entrega TEXT,
+        fecha_recepcion TEXT,
+        estado TEXT NOT NULL DEFAULT 'pedido',
+        notas TEXT,
+        albaran_o_factura TEXT,
+        fecha_creacion TEXT NOT NULL,
+        fecha_actualizacion TEXT NOT NULL,
+        FOREIGN KEY (solicitud_id) REFERENCES material_requests(id),
+        FOREIGN KEY (producto_id) REFERENCES products(id),
+        FOREIGN KEY (proveedor_id) REFERENCES providers(id),
+        FOREIGN KEY (proyecto_id) REFERENCES projects(id),
+        FOREIGN KEY (usuario_id) REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS request_history (
+        id TEXT PRIMARY KEY,
+        solicitud_id TEXT NOT NULL,
+        usuario_id TEXT NOT NULL,
+        usuario_nombre TEXT NOT NULL,
+        accion TEXT NOT NULL,
+        detalles TEXT NOT NULL,
+        valores_anteriores TEXT,
+        valores_nuevos TEXT,
+        fecha TEXT NOT NULL,
+        FOREIGN KEY (solicitud_id) REFERENCES material_requests(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_products_codigo ON products(codigo);
+      CREATE INDEX IF NOT EXISTS idx_movements_producto ON movements(producto_id);
+      CREATE INDEX IF NOT EXISTS idx_movements_proyecto ON movements(proyecto_id);
+      CREATE INDEX IF NOT EXISTS idx_requests_estado ON material_requests(estado);
+      CREATE INDEX IF NOT EXISTS idx_requests_usuario ON material_requests(usuario_id);
+      CREATE INDEX IF NOT EXISTS idx_requests_proyecto ON material_requests(proyecto_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_estado ON orders(estado);
+      CREATE INDEX IF NOT EXISTS idx_orders_solicitud ON orders(solicitud_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_producto ON orders(producto_id);
+      CREATE INDEX IF NOT EXISTS idx_req_history_solicitud ON request_history(solicitud_id);
+    `);
+    return;
+  }
+
+  if (!db) throw new Error('SQLite database unavailable');
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -214,12 +436,10 @@ function createTables() {
   try { db.run("ALTER TABLE categories ADD COLUMN nomenclatura TEXT"); } catch (e) {}
 }
 
-function seedInitialData() {
+async function seedInitialData() {
   // Check if users exist
-  const userCountStmt = db.prepare('SELECT COUNT(*) as count FROM users');
-  userCountStmt.step();
-  const userCount = (userCountStmt.getAsObject() as any).count;
-  userCountStmt.free();
+  const userCountRow = await querySingleRow<{ count: number }>('SELECT COUNT(*) as count FROM users');
+  const userCount = Number(userCountRow?.count ?? 0);
 
   if (userCount === 0) {
     console.log('Sembrando datos iniciales en la base de datos SQLite...');
@@ -228,7 +448,7 @@ function seedInitialData() {
     const adminPass = hashPassword('admin123');
     const operarioPass = hashPassword('operario123');
 
-    db.run(
+    await runSql(
       `INSERT INTO users (id, nombre, email, password_hash, rol, fecha_creacion) VALUES 
       (?, ?, ?, ?, ?, ?),
       (?, ?, ?, ?, ?, ?),
@@ -241,7 +461,7 @@ function seedInitialData() {
     );
 
     // 2. Proveedores
-    db.run(
+    await runSql(
       `INSERT INTO providers (id, nombre, contacto, email, telefono) VALUES
       (?, ?, ?, ?, ?),
       (?, ?, ?, ?, ?),
@@ -256,7 +476,7 @@ function seedInitialData() {
     );
 
     // 3. Proyectos
-    db.run(
+    await runSql(
       `INSERT INTO projects (id, nombre, cliente, direccion, estado, fecha_creacion) VALUES
       (?, ?, ?, ?, ?, ?),
       (?, ?, ?, ?, ?, ?),
@@ -271,7 +491,7 @@ function seedInitialData() {
     );
 
     // 4. Productos
-    db.run(
+    await runSql(
       `INSERT INTO products (id, codigo, nombre, descripcion, imagen_url, categoria, stock_minimo, proveedor_id, proyecto_id, fecha_creacion) VALUES
       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?),
       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?),
@@ -318,7 +538,7 @@ function seedInitialData() {
     ];
 
     for (const m of initialMoves) {
-      db.run(
+      await runSql(
         `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         m
@@ -329,10 +549,8 @@ function seedInitialData() {
   }
 
   // Check if material_requests exist independently
-  const reqCountStmt = db.prepare('SELECT COUNT(*) as count FROM material_requests');
-  reqCountStmt.step();
-  const reqCount = (reqCountStmt.getAsObject() as any).count;
-  reqCountStmt.free();
+  const reqCountRow = await querySingleRow<{ count: number }>('SELECT COUNT(*) as count FROM material_requests');
+  const reqCount = Number(reqCountRow?.count ?? 0);
 
   if (reqCount === 0) {
     const sampleRequests = [
@@ -423,7 +641,7 @@ function seedInitialData() {
     ];
 
     for (const r of sampleRequests) {
-      db.run(
+      await runSql(
         `INSERT INTO material_requests 
          (id, tipo_solicitud, es_material_nuevo, producto_id, material_nombre, material_descripcion, material_categoria, proveedor_sugerido, cantidad, unidad, proyecto_id, usuario_id, prioridad, fecha_solicitud, fecha_necesidad, notas, estado, resolucion_notas, fecha_actualizacion)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -433,10 +651,8 @@ function seedInitialData() {
   }
 
   // Check if orders exist
-  const orderCountStmt = db.prepare('SELECT COUNT(*) as count FROM orders');
-  orderCountStmt.step();
-  const orderCount = (orderCountStmt.getAsObject() as any).count;
-  orderCountStmt.free();
+  const orderCountRow = await querySingleRow<{ count: number }>('SELECT COUNT(*) as count FROM orders');
+  const orderCount = Number(orderCountRow?.count ?? 0);
 
   if (orderCount === 0) {
     const sampleOrders = [
@@ -505,7 +721,7 @@ function seedInitialData() {
     ];
 
     for (const o of sampleOrders) {
-      db.run(
+      await runSql(
         `INSERT INTO orders (
           id, numero_pedido, solicitud_id, producto_id, producto_codigo, producto_nombre,
           producto_categoria, referencia, proveedor_id, proveedor_nombre, proveedor_telefono,
@@ -520,28 +736,28 @@ function seedInitialData() {
   }
 }
 
-function ensureDefaultUsers() {
+async function ensureDefaultUsers() {
   const adminPass = hashPassword('12345');
   
   // Find if an admin or Adminsuiteak user exists
-  const existingAdmin = queryOne<any>(
+  const existingAdmin = await querySingleRow<any>(
     `SELECT * FROM users WHERE rol = 'admin' OR LOWER(nombre) = 'adminsuiteak' OR LOWER(email) = 'admin@suiteak.com' OR LOWER(email) = 'admin@reformas.com' LIMIT 1`
   );
 
   if (existingAdmin) {
-    db.run(
+    await runSql(
       `UPDATE users SET nombre = 'Adminsuiteak', email = 'admin@suiteak.com', password_hash = ?, rol = 'admin' WHERE id = ?`,
       [adminPass, existingAdmin.id]
     );
   } else {
-    db.run(
+    await runSql(
       `INSERT INTO users (id, nombre, email, password_hash, rol, fecha_creacion) VALUES (?, ?, ?, ?, ?, ?)`,
       ['usr-admin-1', 'Adminsuiteak', 'admin@suiteak.com', adminPass, 'admin', new Date().toISOString()]
     );
   }
 }
 
-function ensureDefaultCategories() {
+async function ensureDefaultCategories() {
   const defaultCats = [
     { nombre: 'Materiales', nomenclatura: 'MAT', descripcion: 'Cemento, áridos, yesos, aislamientos y ladrillos' },
     { nombre: 'Herramientas', nomenclatura: 'HER', descripcion: 'Maquinaria electroportátil, manual y accesorios' },
@@ -556,33 +772,33 @@ function ensureDefaultCategories() {
 
   for (let i = 0; i < defaultCats.length; i++) {
     const cat = defaultCats[i];
-    const exists = queryOne<any>('SELECT id, nomenclatura FROM categories WHERE LOWER(TRIM(nombre)) = LOWER(?)', [cat.nombre.trim()]);
+    const exists = await querySingleRow<any>('SELECT id, nomenclatura FROM categories WHERE LOWER(TRIM(nombre)) = LOWER(?)', [cat.nombre.trim()]);
     if (!exists) {
-      db.run(
+      await runSql(
         'INSERT INTO categories (id, nombre, descripcion, nomenclatura, orden) VALUES (?, ?, ?, ?, ?)',
         [`cat-${Date.now()}-${i}`, cat.nombre.trim(), cat.descripcion, cat.nomenclatura, i]
       );
     } else if (!exists.nomenclatura || exists.nomenclatura.trim() === '') {
-      db.run('UPDATE categories SET nomenclatura = ? WHERE id = ?', [cat.nomenclatura, exists.id]);
+      await runSql('UPDATE categories SET nomenclatura = ? WHERE id = ?', [cat.nomenclatura, exists.id]);
     }
   }
 
   // Also import any distinct categories already in products table
   try {
-    const prodCats = queryAll<{ categoria: string }>('SELECT DISTINCT categoria FROM products WHERE categoria IS NOT NULL');
+    const prodCats = await queryAllRows<{ categoria: string }>('SELECT DISTINCT categoria FROM products WHERE categoria IS NOT NULL');
     for (let j = 0; j < prodCats.length; j++) {
       const trimmed = prodCats[j].categoria?.trim();
       if (trimmed) {
-        const exists = queryOne<any>('SELECT id, nomenclatura FROM categories WHERE LOWER(TRIM(nombre)) = LOWER(?)', [trimmed]);
+        const exists = await querySingleRow<any>('SELECT id, nomenclatura FROM categories WHERE LOWER(TRIM(nombre)) = LOWER(?)', [trimmed]);
         if (!exists) {
           const autoPrefix = trimmed.length >= 3 ? trimmed.substring(0, 3).toUpperCase() : 'OTR';
-          db.run(
+          await runSql(
             'INSERT INTO categories (id, nombre, descripcion, nomenclatura, orden) VALUES (?, ?, ?, ?, ?)',
             [`cat-${Date.now()}-${100 + j}`, trimmed, 'Familia de productos', autoPrefix, 50 + j]
           );
         } else if (!exists.nomenclatura) {
           const autoPrefix = trimmed.length >= 3 ? trimmed.substring(0, 3).toUpperCase() : 'OTR';
-          db.run('UPDATE categories SET nomenclatura = ? WHERE id = ?', [autoPrefix, exists.id]);
+          await runSql('UPDATE categories SET nomenclatura = ? WHERE id = ?', [autoPrefix, exists.id]);
         }
       }
     }
@@ -592,34 +808,26 @@ function ensureDefaultCategories() {
 }
 
 // Helper generic query functions
-export function queryAll<T = any>(sql: string, params: any[] = []): T[] {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  const rows: T[] = [];
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject() as unknown as T);
-  }
-  stmt.free();
-  return rows;
+export async function queryAll<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+  return queryAllRows<T>(sql, params);
 }
 
-export function queryOne<T = any>(sql: string, params: any[] = []): T | null {
-  const rows = queryAll<T>(sql, params);
-  return rows.length > 0 ? rows[0] : null;
+export async function queryOne<T = any>(sql: string, params: any[] = []): Promise<T | null> {
+  return querySingleRow<T>(sql, params);
 }
 
-export function execute(sql: string, params: any[] = []): void {
-  db.run(sql, params);
+export async function execute(sql: string, params: any[] = []): Promise<void> {
+  await runSql(sql, params);
   persistDatabase();
 }
 
 // Business logic queries for Stock calculations
-export function getProductStockMetrics(productId: string): {
+export async function getProductStockMetrics(productId: string): Promise<{
   stock_actual: number;
   stock_reservado: number;
   stock_disponible: number;
-} {
-  const rows = queryAll<{ tipo: string; total: number }>(
+}> {
+  const rows = await queryAll<{ tipo: string; total: number }>(
     `SELECT tipo, SUM(cantidad) as total 
      FROM movements 
      WHERE producto_id = ? 
@@ -647,12 +855,12 @@ export function getProductStockMetrics(productId: string): {
   };
 }
 
-export function getProducts(options: {
+export async function getProducts(options: {
   query?: string;
   category?: string;
   low_stock_only?: boolean;
   project_id?: string;
-} = {}): Product[] {
+} = {}): Promise<Product[]> {
   let sql = `
     SELECT p.*, 
       pr.nombre as proveedor_nombre,
@@ -686,7 +894,7 @@ export function getProducts(options: {
 
   sql += ` ORDER BY p.codigo ASC`;
 
-  const rows = queryAll<any>(sql, params);
+  const rows = await queryAll<any>(sql, params);
 
   const products: Product[] = rows.map((r) => {
     const totalEntradas = Number(r.total_entradas) || 0;
@@ -727,18 +935,18 @@ export function getProducts(options: {
   return products;
 }
 
-export function getProductById(id: string): Product | null {
-  const products = getProducts();
+export async function getProductById(id: string): Promise<Product | null> {
+  const products = await getProducts();
   return products.find((p) => p.id === id || p.codigo === id) || null;
 }
 
-export function getMovements(options: {
+export async function getMovements(options: {
   tipo?: string;
   producto_id?: string;
   proyecto_id?: string;
   desde?: string;
   hasta?: string;
-} = {}): Movement[] {
+} = {}): Promise<Movement[]> {
   let sql = `
     SELECT m.*, 
       p.codigo as producto_codigo, 
@@ -781,10 +989,10 @@ export function getMovements(options: {
 
   sql += ` ORDER BY m.fecha DESC`;
 
-  return queryAll<Movement>(sql, params);
+  return await queryAll<Movement>(sql, params);
 }
 
-export function getMovementById(id: string): Movement | null {
+export async function getMovementById(id: string): Promise<Movement | null> {
   const sql = `
     SELECT m.*, 
       p.codigo as producto_codigo, 
@@ -798,43 +1006,43 @@ export function getMovementById(id: string): Movement | null {
     LEFT JOIN projects proj ON m.proyecto_id = proj.id
     WHERE m.id = ?
   `;
-  return queryOne<Movement>(sql, [id]);
+  return await queryOne<Movement>(sql, [id]);
 }
 
-export function getProjects(): Project[] {
-  return queryAll<Project>(`SELECT * FROM projects ORDER BY estado ASC, nombre ASC`);
+export async function getProjects(): Promise<Project[]> {
+  return await queryAll<Project>(`SELECT * FROM projects ORDER BY estado ASC, nombre ASC`);
 }
 
-export function getProjectById(id: string): Project | null {
-  return queryOne<Project>(`SELECT * FROM projects WHERE id = ?`, [id]);
+export async function getProjectById(id: string): Promise<Project | null> {
+  return await queryOne<Project>(`SELECT * FROM projects WHERE id = ?`, [id]);
 }
 
-export function getProviders(): Provider[] {
-  return queryAll<Provider>(`SELECT * FROM providers ORDER BY nombre ASC`);
+export async function getProviders(): Promise<Provider[]> {
+  return await queryAll<Provider>(`SELECT * FROM providers ORDER BY nombre ASC`);
 }
 
-export function getProviderById(id: string): Provider | null {
-  return queryOne<Provider>(`SELECT * FROM providers WHERE id = ?`, [id]);
+export async function getProviderById(id: string): Promise<Provider | null> {
+  return await queryOne<Provider>(`SELECT * FROM providers WHERE id = ?`, [id]);
 }
 
-export function getUsers(): User[] {
-  return queryAll<User>(`SELECT id, nombre, email, rol, fecha_creacion FROM users ORDER BY rol ASC, nombre ASC`);
+export async function getUsers(): Promise<User[]> {
+  return await queryAll<User>(`SELECT id, nombre, email, rol, fecha_creacion FROM users ORDER BY rol ASC, nombre ASC`);
 }
 
-export function getUserById(id: string): User | null {
-  return queryOne<User>(`SELECT id, nombre, email, rol, fecha_creacion FROM users WHERE id = ?`, [id]);
+export async function getUserById(id: string): Promise<User | null> {
+  return await queryOne<User>(`SELECT id, nombre, email, rol, fecha_creacion FROM users WHERE id = ?`, [id]);
 }
 
-export function getUserByEmail(identifier: string): (User & { password_hash: string }) | null {
+export async function getUserByEmail(identifier: string): Promise<(User & { password_hash: string }) | null> {
   const clean = identifier.trim().toLowerCase();
-  return queryOne<User & { password_hash: string }>(
+  return await queryOne<User & { password_hash: string }>(
     `SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(nombre) = ?`,
     [clean, clean]
   );
 }
 
-export function getDashboardStats(): DashboardStats {
-  const allProducts = getProducts();
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const allProducts = await getProducts();
   const lowStock = allProducts.filter((p) => p.en_alerta);
 
   // Today start in ISO
@@ -842,7 +1050,7 @@ export function getDashboardStats(): DashboardStats {
   today.setHours(0, 0, 0, 0);
   const todayIso = today.toISOString();
 
-  const todayMoves = queryAll<Movement>(
+  const todayMoves = await queryAll<Movement>(
     `SELECT * FROM movements WHERE fecha >= ?`,
     [todayIso]
   );
@@ -851,23 +1059,23 @@ export function getDashboardStats(): DashboardStats {
   const salidasHoy = todayMoves.filter((m) => m.tipo === 'salida').length;
   const reservasHoy = todayMoves.filter((m) => m.tipo === 'reserva').length;
 
-  const activeProjects = queryAll<Project>(
+  const activeProjects = await queryAll<Project>(
     `SELECT * FROM projects WHERE estado = 'activo'`
   );
 
-  const recentMovements = getMovements().slice(0, 8);
+  const recentMovements = (await getMovements()).slice(0, 8);
 
-  const pendingRequestsStmt = queryOne<{ count: number }>(
+  const pendingRequestsStmt = await queryOne<{ count: number }>(
     `SELECT COUNT(*) as count FROM material_requests WHERE estado IN ('pendiente', 'en_preparacion')`
   );
   const solicitudes_pendientes = Number(pendingRequestsStmt?.count) || 0;
 
-  const pendingOrdersStmt = queryOne<{ count: number }>(
+  const pendingOrdersStmt = await queryOne<{ count: number }>(
     `SELECT COUNT(*) as count FROM orders WHERE estado IN ('pendiente', 'pedido')`
   );
   const pedidos_pendientes = Number(pendingOrdersStmt?.count) || 0;
 
-  const enCaminoOrdersStmt = queryOne<{ count: number }>(
+  const enCaminoOrdersStmt = await queryOne<{ count: number }>(
     `SELECT COUNT(*) as count FROM orders WHERE estado = 'en_camino'`
   );
   const pedidos_en_camino = Number(enCaminoOrdersStmt?.count) || 0;
@@ -888,13 +1096,13 @@ export function getDashboardStats(): DashboardStats {
   };
 }
 
-export function getMaterialRequests(options: {
+export async function getMaterialRequests(options: {
   estado?: string;
   tipo_solicitud?: string;
   proyecto_id?: string;
   usuario_id?: string;
   query?: string;
-} = {}): MaterialRequest[] {
+} = {}): Promise<MaterialRequest[]> {
   let sql = `
     SELECT r.*,
       p.codigo as producto_codigo,
@@ -948,7 +1156,7 @@ export function getMaterialRequests(options: {
     END, 
     r.fecha_solicitud DESC`;
 
-  const rows = queryAll<any>(sql, params);
+  const rows = await queryAll<any>(sql, params);
   return rows.map((r) => ({
     ...r,
     es_material_nuevo: Boolean(r.es_material_nuevo),
@@ -956,12 +1164,12 @@ export function getMaterialRequests(options: {
   }));
 }
 
-export function getMaterialRequestById(id: string): MaterialRequest | null {
-  const requests = getMaterialRequests();
+export async function getMaterialRequestById(id: string): Promise<MaterialRequest | null> {
+  const requests = await getMaterialRequests();
   return requests.find((r) => r.id === id) || null;
 }
 
-export function getCategories(): Array<{ id: string; nombre: string; descripcion?: string; nomenclatura?: string; product_count: number }> {
+export async function getCategories(): Promise<Array<{ id: string; nombre: string; descripcion?: string; nomenclatura?: string; product_count: number }>> {
   const sql = `
     SELECT 
       c.id, 
@@ -973,7 +1181,7 @@ export function getCategories(): Array<{ id: string; nombre: string; descripcion
     FROM categories c
     ORDER BY c.orden ASC, c.nombre ASC
   `;
-  const rows = queryAll<any>(sql);
+  const rows = await queryAll<any>(sql);
   return rows.map((r) => ({
     id: r.id,
     nombre: r.nombre,
@@ -983,16 +1191,16 @@ export function getCategories(): Array<{ id: string; nombre: string; descripcion
   }));
 }
 
-export function getCategoryById(id: string) {
-  return queryOne<any>('SELECT * FROM categories WHERE id = ?', [id]);
+export async function getCategoryById(id: string): Promise<any> {
+  return await queryOne<any>('SELECT * FROM categories WHERE id = ?', [id]);
 }
 
-export function getOrders(options: {
+export async function getOrders(options: {
   estado?: string;
   proveedor_id?: string;
   proyecto_id?: string;
   query?: string;
-} = {}): Order[] {
+} = {}): Promise<Order[]> {
   let sql = `SELECT * FROM orders WHERE 1=1`;
   const params: any[] = [];
 
@@ -1027,7 +1235,7 @@ export function getOrders(options: {
     END, 
     fecha_pedido DESC`;
 
-  const rows = queryAll<any>(sql, params);
+  const rows = await queryAll<any>(sql, params);
   return rows.map((r) => ({
     ...r,
     cantidad: Number(r.cantidad),
@@ -1035,8 +1243,8 @@ export function getOrders(options: {
   }));
 }
 
-export function getOrderById(id: string): Order | null {
-  const row = queryOne<any>(`SELECT * FROM orders WHERE id = ?`, [id]);
+export async function getOrderById(id: string): Promise<Order | null> {
+  const row = await queryOne<any>(`SELECT * FROM orders WHERE id = ?`, [id]);
   if (!row) return null;
   return {
     ...row,
@@ -1045,12 +1253,12 @@ export function getOrderById(id: string): Order | null {
   };
 }
 
-export function getRequestHistory(solicitudId: string): RequestHistoryEntry[] {
+export async function getRequestHistory(solicitudId: string): Promise<RequestHistoryEntry[]> {
   const sql = `SELECT * FROM request_history WHERE solicitud_id = ? ORDER BY fecha DESC`;
-  return queryAll<RequestHistoryEntry>(sql, [solicitudId]);
+  return await queryAll<RequestHistoryEntry>(sql, [solicitudId]);
 }
 
-export function addRequestHistoryEntry(
+export async function addRequestHistoryEntry(
   solicitudId: string,
   userId: string,
   userNombre: string,
@@ -1061,7 +1269,7 @@ export function addRequestHistoryEntry(
 ) {
   const id = 'hist-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
   const now = new Date().toISOString();
-  db.run(
+  await runSql(
     `INSERT INTO request_history (id, solicitud_id, usuario_id, usuario_nombre, accion, detalles, valores_anteriores, valores_nuevos, fecha)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, solicitudId, userId, userNombre, accion, detalles, valoresAnteriores || null, valoresNuevos || null, now]
