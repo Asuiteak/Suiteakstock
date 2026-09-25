@@ -463,8 +463,22 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
                   {/* Stock Gauge Progress Bar */}
                   <div className="mb-4">
+                    <div className="grid grid-cols-3 gap-2 mb-2 text-center">
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5">
+                        <span className="block text-[10px] text-blue-700">Solicitadas</span>
+                        <strong className="font-mono text-blue-900">{p.unidades_solicitadas}</strong>
+                      </div>
+                      <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5">
+                        <span className="block text-[10px] text-indigo-700">Tienda/obra</span>
+                        <strong className="font-mono text-indigo-900">{p.stock_fuera_almacen}</strong>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                        <span className="block text-[10px] text-slate-600">Pend. almacén</span>
+                        <strong className="font-mono text-slate-900">{p.unidades_pendientes_almacen}</strong>
+                      </div>
+                    </div>
                     <div className="flex items-center justify-between text-[11px] mb-1">
-                      <span className="text-slate-500 font-medium">Disponibilidad</span>
+                      <span className="text-slate-500 font-medium">Uds disponibles en almacén</span>
                       <span
                         className={`font-mono font-bold ${
                           isLowStock ? 'text-amber-700 font-extrabold' : 'text-emerald-700'
@@ -551,6 +565,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 <tr>
                   <th className="py-3.5 px-4">Código / Imagen</th>
                   <th className="py-3.5 px-4">Producto & Categoría</th>
+                  <th className="py-3.5 px-4 text-center">Solicitadas</th>
                   <th className="py-3.5 px-4 text-center">Físico</th>
                   <th className="py-3.5 px-4 text-center">Reservado</th>
                   <th className="py-3.5 px-4 text-center">Disponible</th>
@@ -616,6 +631,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                         {p.en_alerta && <AlertTriangle className="w-3 h-3" />}
                         {p.stock_disponible}
                       </span>
+                    </td>
+
+                    <td className="py-3 px-4 text-center font-mono text-blue-700 font-bold">
+                      {p.unidades_solicitadas}
                     </td>
 
                     <td className="py-3 px-4 text-center font-mono text-slate-500">

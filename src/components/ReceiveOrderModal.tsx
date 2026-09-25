@@ -12,7 +12,7 @@ import {
   PlusCircle,
   Hash
 } from 'lucide-react';
-import { Order, Product, Category } from '../types';
+import { Order, Product, Category, Project } from '../types';
 import { api } from '../lib/api';
 
 interface ReceiveOrderModalProps {
@@ -21,6 +21,7 @@ interface ReceiveOrderModalProps {
   order: Order | null;
   products: Product[];
   categoriesList?: Category[];
+  projects?: Project[];
   onSuccess: () => void;
   onShowToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -42,6 +43,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
   order,
   products,
   categoriesList = [],
+  projects = [],
   onSuccess,
   onShowToast,
 }) => {
@@ -50,6 +52,8 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
   const [cantidadRecibida, setCantidadRecibida] = useState('1');
   const [albaran, setAlbaran] = useState('');
   const [notasRecepcion, setNotasRecepcion] = useState('');
+  const [cantidadAdjudicada, setCantidadAdjudicada] = useState('1');
+  const [proyectoAdjudicacion, setProyectoAdjudicacion] = useState('');
 
   // Fields for new product cataloging
   const [codigoProducto, setCodigoProducto] = useState('');
@@ -73,6 +77,8 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
     if (!isOpen || !order) return;
 
     setCantidadRecibida(String(order.cantidad));
+    setCantidadAdjudicada('1');
+    setProyectoAdjudicacion(order.proyecto_id || '');
     setAlbaran('');
     setNotasRecepcion('');
     setError(null);
@@ -134,6 +140,22 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
     setError(null);
 
     try {
+      if (order.estado === 'recibido_tienda_obra') {
+        if (!proyectoAdjudicacion) {
+          setError('Selecciona la obra o proyecto de destino.');
+          setLoading(false);
+          return;
+        }
+        const result = await api.allocateOrderToProject(order.id, {
+          cantidad: Number(cantidadAdjudicada),
+          proyecto_id: proyectoAdjudicacion,
+          notas: notasRecepcion.trim() || undefined,
+        });
+        onShowToast(result.message, 'success');
+        onSuccess();
+        onClose();
+        return;
+      }
       const payload: any = {
         cantidad_recibida: numCant,
         albaran: albaran.trim() || undefined,
@@ -207,6 +229,26 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
         )}
 
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 flex-1">
+          {order.estado === 'recibido_tienda_obra' && (
+            <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50 space-y-3">
+              <div className="text-xs text-indigo-900">
+                El pedido llegó a tienda/obra. Puedes adjudicar una parte a la obra; el resto seguirá pendiente de entrada en almacén.
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="text-xs font-bold text-indigo-900">
+                  Cantidad a adjudicar
+                  <input type="number" min="0.1" max={order.cantidad} step="any" required value={cantidadAdjudicada} onChange={(e) => setCantidadAdjudicada(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white font-mono" />
+                </label>
+                <label className="text-xs font-bold text-indigo-900">
+                  Obra o proyecto
+                  <select required value={proyectoAdjudicacion} onChange={(e) => setProyectoAdjudicacion(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white">
+                    <option value="">-- Seleccionar destino --</option>
+                    {projects.map((project) => <option key={project.id} value={project.id}>{project.nombre}</option>)}
+                  </select>
+                </label>
+              </div>
+            </div>
+          )}
           {/* Albarán y Cantidad Real Recibida */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>

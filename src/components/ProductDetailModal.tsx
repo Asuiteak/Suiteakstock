@@ -211,12 +211,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           <div className="grid grid-cols-3 gap-3">
             <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center">
               <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                Stock Físico
+                Uds existentes
               </div>
               <div className="text-2xl font-bold text-slate-900 mt-1 font-mono">
                 {product.stock_actual}
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">En almacén</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Almacén y tienda/obra</div>
             </div>
 
             <div className="p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-xl text-center">
@@ -237,7 +237,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               }`}
             >
               <div className="text-[11px] font-semibold uppercase tracking-wider">
-                Disponible
+                Uds disponibles en almacén
               </div>
               <div className="text-2xl font-bold mt-1 font-mono">
                 {product.stock_disponible}

@@ -232,6 +232,7 @@ export default function App() {
             stock_minimo: 5,
             fecha_creacion: '',
             stock_actual: 0,
+            stock_fuera_almacen: 0,
             stock_reservado: 0,
             stock_disponible: 0,
             en_alerta: false,
