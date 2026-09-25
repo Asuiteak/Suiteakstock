@@ -410,11 +410,8 @@ export const api = {
   async receiveOrder(
     id: string,
     data: {
-      producto_id?: string;
-      cantidad_recibida?: number;
       codigo_producto?: string;
       categoria_producto?: string;
-      nombre_producto?: string;
       stock_minimo?: number;
       descripcion_producto?: string;
       albaran?: string;
@@ -426,16 +423,6 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }
-    );
-  },
-
-  async allocateOrderToProject(
-    id: string,
-    data: { cantidad: number; proyecto_id: string; notas?: string }
-  ): Promise<{ success: boolean; order: Order; product: Product; message: string }> {
-    return request<{ success: boolean; order: Order; product: Product; message: string }>(
-      `/api/orders/${encodeURIComponent(id)}/allocate`,
-      { method: 'POST', body: JSON.stringify(data) }
     );
   },
 

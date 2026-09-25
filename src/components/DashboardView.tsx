@@ -105,29 +105,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Large Action Buttons Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Button 1: Nueva Entrada */}
           <button
             id="dash-btn-entrada"
             onClick={() => onOpenNewMovement('entrada')}
-            className="group text-left p-3 sm:p-6 bg-gradient-to-br from-emerald-50/70 to-emerald-100/30 hover:from-emerald-100/80 hover:to-emerald-200/40 border-2 border-emerald-300/80 hover:border-emerald-500 rounded-2xl transition-all shadow-xs hover:shadow-md flex flex-col justify-between min-h-[112px] sm:min-h-[140px] focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+            className="group text-left p-5 sm:p-6 bg-gradient-to-br from-emerald-50/70 to-emerald-100/30 hover:from-emerald-100/80 hover:to-emerald-200/40 border-2 border-emerald-300/80 hover:border-emerald-500 rounded-2xl transition-all shadow-xs hover:shadow-md flex flex-col justify-between min-h-[140px] focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
           >
             <div className="flex items-start justify-between w-full">
-              <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-                <ArrowDownLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+              <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                <ArrowDownLeft className="w-6 h-6" />
               </div>
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-1.5 sm:px-2.5 py-1 rounded-full bg-emerald-600/10 text-emerald-800 border border-emerald-600/20">
+              <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-600/10 text-emerald-800 border border-emerald-600/20">
                 Entrada
               </span>
             </div>
-            <div className="mt-2 sm:mt-4">
+            <div className="mt-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm sm:text-xl font-bold text-slate-900 group-hover:text-emerald-900 transition-colors">
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 group-hover:text-emerald-900 transition-colors">
                   Nueva Entrada
                 </h3>
-                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                <ArrowRight className="w-5 h-5 text-emerald-600 opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
-              <p className="text-[10px] sm:text-sm text-slate-600 mt-1 leading-snug">
+              <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-snug">
                 Recepción de material de proveedor o compra
               </p>
             </div>
@@ -137,24 +137,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             id="dash-btn-salida"
             onClick={() => onOpenNewMovement('salida')}
-            className="group text-left p-3 sm:p-6 bg-gradient-to-br from-red-50/70 to-red-100/30 hover:from-red-100/80 hover:to-red-200/40 border-2 border-red-300/80 hover:border-[#EA1D24] rounded-2xl transition-all shadow-xs hover:shadow-md flex flex-col justify-between min-h-[112px] sm:min-h-[140px] focus:outline-hidden focus:ring-2 focus:ring-[#EA1D24]"
+            className="group text-left p-5 sm:p-6 bg-gradient-to-br from-red-50/70 to-red-100/30 hover:from-red-100/80 hover:to-red-200/40 border-2 border-red-300/80 hover:border-[#EA1D24] rounded-2xl transition-all shadow-xs hover:shadow-md flex flex-col justify-between min-h-[140px] focus:outline-hidden focus:ring-2 focus:ring-[#EA1D24]"
           >
             <div className="flex items-start justify-between w-full">
-              <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-[#EA1D24] text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-                <ArrowUpRight className="w-5 h-5 sm:w-6 sm:h-6" />
+              <div className="w-12 h-12 rounded-xl bg-[#EA1D24] text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                <ArrowUpRight className="w-6 h-6" />
               </div>
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-1.5 sm:px-2.5 py-1 rounded-full bg-red-600/10 text-red-800 border border-red-600/20">
+              <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-red-600/10 text-red-800 border border-red-600/20">
                 Salida
               </span>
             </div>
-            <div className="mt-2 sm:mt-4">
+            <div className="mt-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm sm:text-xl font-bold text-slate-900 group-hover:text-[#EA1D24] transition-colors">
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 group-hover:text-[#EA1D24] transition-colors">
                   Nueva Salida
                 </h3>
-                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 text-[#EA1D24] opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                <ArrowRight className="w-5 h-5 text-[#EA1D24] opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
-              <p className="text-[10px] sm:text-sm text-slate-600 mt-1 leading-snug">
+              <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-snug">
                 Retirada y consumo directo de material para obra
               </p>
             </div>
@@ -164,24 +164,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             id="dash-btn-reserva"
             onClick={() => onOpenNewMovement('reserva')}
-            className="group text-left p-3 sm:p-6 bg-gradient-to-br from-amber-50/70 to-amber-100/30 hover:from-amber-100/80 hover:to-amber-200/40 border-2 border-amber-300/80 hover:border-amber-500 rounded-2xl transition-all shadow-xs hover:shadow-md flex flex-col justify-between min-h-[112px] sm:min-h-[140px] focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+            className="group text-left p-5 sm:p-6 bg-gradient-to-br from-amber-50/70 to-amber-100/30 hover:from-amber-100/80 hover:to-amber-200/40 border-2 border-amber-300/80 hover:border-amber-500 rounded-2xl transition-all shadow-xs hover:shadow-md flex flex-col justify-between min-h-[140px] focus:outline-hidden focus:ring-2 focus:ring-amber-500"
           >
             <div className="flex items-start justify-between w-full">
-              <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-                <Bookmark className="w-5 h-5 sm:w-6 sm:h-6" />
+              <div className="w-12 h-12 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                <Bookmark className="w-6 h-6" />
               </div>
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-1.5 sm:px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-900 border border-amber-500/20">
+              <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-900 border border-amber-500/20">
                 Reserva
               </span>
             </div>
-            <div className="mt-2 sm:mt-4">
+            <div className="mt-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm sm:text-xl font-bold text-slate-900 group-hover:text-amber-900 transition-colors">
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 group-hover:text-amber-900 transition-colors">
                   Reservar Material
                 </h3>
-                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                <ArrowRight className="w-5 h-5 text-amber-600 opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
-              <p className="text-[10px] sm:text-sm text-slate-600 mt-1 leading-snug">
+              <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-snug">
                 Apartar y asignar existencias a un proyecto u obra
               </p>
             </div>
@@ -191,24 +191,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             id="dash-btn-nuevo-pedido"
             onClick={() => onNavigate('orders')}
-            className="group text-left p-3 sm:p-6 bg-gradient-to-br from-blue-50/70 to-blue-100/30 hover:from-blue-100/80 hover:to-blue-200/40 border-2 border-blue-300/80 hover:border-blue-500 rounded-2xl transition-all shadow-xs hover:shadow-md flex flex-col justify-between min-h-[112px] sm:min-h-[140px] focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="group text-left p-5 sm:p-6 bg-gradient-to-br from-blue-50/70 to-blue-100/30 hover:from-blue-100/80 hover:to-blue-200/40 border-2 border-blue-300/80 hover:border-blue-500 rounded-2xl transition-all shadow-xs hover:shadow-md flex flex-col justify-between min-h-[140px] focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           >
             <div className="flex items-start justify-between w-full">
-              <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-                <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6" />
+              <div className="w-12 h-12 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                <ShoppingCart className="w-6 h-6" />
               </div>
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-1.5 sm:px-2.5 py-1 rounded-full bg-blue-600/10 text-blue-800 border border-blue-600/20">
+              <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-blue-600/10 text-blue-800 border border-blue-600/20">
                 Pedidos
               </span>
             </div>
-            <div className="mt-2 sm:mt-4">
+            <div className="mt-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm sm:text-xl font-bold text-slate-900 group-hover:text-blue-900 transition-colors">
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 group-hover:text-blue-900 transition-colors">
                   Nuevo Pedido
                 </h3>
-                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                <ArrowRight className="w-5 h-5 text-blue-600 opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
-              <p className="text-[10px] sm:text-sm text-slate-600 mt-1 leading-snug">
+              <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-snug">
                 Gestionar y encargar material a proveedores
               </p>
             </div>
@@ -325,7 +325,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
                       <div className="flex items-center gap-3 text-xs mt-1.5">
                         <span className="text-amber-700 font-bold bg-amber-100/80 px-2 py-0.5 rounded-md">
-                          Disp. almacén: {product.stock_disponible}
+                          Disp: {product.stock_disponible}
                         </span>
                         <span className="text-slate-500">Mín: {product.stock_minimo}</span>
                       </div>

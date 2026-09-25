@@ -70,54 +70,43 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
   // Normalize legacy and new statuses for consistent filtering
   const normalizeStatus = (estado: string): OrderStatus => {
-    if (estado === 'por_tramitar') {
-      return 'por_tramitar';
-    }
     if (estado === 'pendiente' || estado === 'en_camino' || estado === 'pendiente_recibir') {
       return 'pendiente_recibir';
     }
-    if (estado === 'recibido_tienda_obra') {
-      return 'recibido_tienda_obra';
-    }
     if (estado === 'recibido' || estado === 'disponible') {
-      return 'recibido';
+      return 'disponible';
     }
     if (estado === 'cancelado' || estado === 'descatalogado') {
-      return 'cancelado';
+      return 'descatalogado';
     }
-    return 'por_tramitar';
+    if (estado === 'sin_existencias') {
+      return 'sin_existencias';
+    }
+    if (estado === 'reservado') {
+      return 'reservado';
+    }
+    return 'pendiente_recibir';
   };
 
   // Metrics by requested statuses
   const metrics = useMemo(() => {
     const total = orders.length;
-    let porTramitar = 0;
     let pendienteRecibir = 0;
-    let recibido = 0;
-    let recibidoTiendaObra = 0;
-    let cancelado = 0;
+    let disponible = 0;
+    let sinExistencias = 0;
+    let reservado = 0;
+    let descatalogado = 0;
 
     orders.forEach((o) => {
       const norm = normalizeStatus(o.estado);
-      if (norm === 'por_tramitar') porTramitar++;
-      else if (norm === 'pendiente_recibir') pendienteRecibir++;
-      else if (norm === 'recibido') recibido++;
-      else if (norm === 'recibido_tienda_obra') recibidoTiendaObra++;
-      else if (norm === 'cancelado') cancelado++;
+      if (norm === 'pendiente_recibir') pendienteRecibir++;
+      else if (norm === 'disponible') disponible++;
+      else if (norm === 'sin_existencias') sinExistencias++;
+      else if (norm === 'reservado') reservado++;
+      else if (norm === 'descatalogado') descatalogado++;
     });
 
-    return {
-      total,
-      porTramitar,
-      pendienteRecibir,
-      recibido,
-      recibidoTiendaObra,
-      cancelado,
-      disponible: recibido,
-      sinExistencias: 0,
-      reservado: 0,
-      descatalogado: cancelado
-    };
+    return { total, pendienteRecibir, disponible, sinExistencias, reservado, descatalogado };
   }, [orders]);
 
   // Filtered orders
@@ -126,10 +115,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       const norm = normalizeStatus(o.estado);
       if (statusFilter !== 'all') {
         if (statusFilter === 'pendiente_recibir' && norm !== 'pendiente_recibir') return false;
-        if (statusFilter === 'por_tramitar' && norm !== 'por_tramitar') return false;
-        if (statusFilter === 'recibido' && norm !== 'recibido') return false;
-        if (statusFilter === 'recibido_tienda_obra' && norm !== 'recibido_tienda_obra') return false;
-        if (statusFilter === 'cancelado' && norm !== 'cancelado') return false;
+        if (statusFilter === 'disponible' && norm !== 'disponible') return false;
+        if (statusFilter === 'descatalogado' && norm !== 'descatalogado') return false;
+        if (statusFilter === 'sin_existencias' && norm !== 'sin_existencias') return false;
+        if (statusFilter === 'reservado' && norm !== 'reservado') return false;
         if (statusFilter !== norm && o.estado !== statusFilter) return false;
       }
 
@@ -196,34 +185,18 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const getStatusBadge = (estado: string) => {
     const norm = normalizeStatus(estado);
     switch (norm) {
-      case 'por_tramitar':
-        return (
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-800 bg-blue-100/90 border border-blue-300 px-2.5 py-0.5 rounded-full">
-            <Clock className="w-3.5 h-3.5 text-blue-700" />
-            <span>Por tramitar</span>
-          </span>
-        );
       case 'disponible':
-      case 'recibido':
         return (
           <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2.5 py-0.5 rounded-full shadow-2xs">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-            <span>Recibido</span>
-          </span>
-        );
-      case 'recibido_tienda_obra':
-        return (
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-800 bg-indigo-100/90 border border-indigo-300 px-2.5 py-0.5 rounded-full">
-            <CheckCircle2 className="w-3.5 h-3.5 text-indigo-700" />
-            <span>Recibido en tienda/obra</span>
+            <span>Disponible</span>
           </span>
         );
       case 'descatalogado':
-      case 'cancelado':
         return (
           <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-300 px-2.5 py-0.5 rounded-full">
             <Ban className="w-3.5 h-3.5 text-slate-500" />
-            <span>Cancelado</span>
+            <span>Descatalogado</span>
           </span>
         );
       case 'sin_existencias':
@@ -281,7 +254,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               className="flex items-center gap-2 px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 active:bg-neutral-950 text-white rounded-xl text-xs font-bold transition-all shadow-xs border border-neutral-800"
             >
               <Boxes className="w-4 h-4 text-[#EA1D24]" />
-              <span>Pedir producto existente</span>
+              <span>Pedir desde Productos</span>
             </button>
           )}
 
@@ -291,7 +264,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               className="flex items-center gap-2 px-4 py-2.5 bg-[#EA1D24] hover:bg-[#d61920] active:bg-[#bf161c] text-white rounded-xl text-xs font-bold transition-all shadow-xs shadow-red-600/20"
             >
               <Plus className="w-4 h-4" />
-              <span>Pedir producto nuevo</span>
+              <span>Nuevo Pedido Manual</span>
             </button>
           )}
         </div>
@@ -337,7 +310,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           <div className="text-xl font-black text-slate-900 mt-1 font-mono">{metrics.total}</div>
         </button>
 
-        {/* A la espera de recibirlo (highlighted) */}
+        {/* Pendiente de recibir (highlighted) */}
         <button
           onClick={() => setStatusFilter('pendiente_recibir')}
           className={`bento-card p-3.5 text-left transition-all border-amber-300 bg-amber-50/60 ${
@@ -345,68 +318,67 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           }`}
         >
           <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-900 flex items-center justify-between">
-            <span>A la espera</span>
+            <span>Pend. Recibir</span>
             <Clock className="w-3.5 h-3.5 text-amber-700" />
           </div>
           <div className="text-xl font-black text-amber-950 mt-1 font-mono">{metrics.pendienteRecibir}</div>
         </button>
 
-        {/* Recibido */}
+        {/* Disponible */}
         <button
-          onClick={() => setStatusFilter('recibido')}
+          onClick={() => setStatusFilter('disponible')}
           className={`bento-card p-3.5 text-left transition-all border-emerald-200 bg-emerald-50/30 ${
-            statusFilter === 'recibido' ? 'ring-2 ring-emerald-500' : ''
+            statusFilter === 'disponible' ? 'ring-2 ring-emerald-500' : ''
           }`}
         >
           <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 flex items-center justify-between">
-            <span>Recibido</span>
+            <span>Disponible</span>
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
           </div>
-          <div className="text-xl font-black text-emerald-800 mt-1 font-mono">{metrics.recibido}</div>
+          <div className="text-xl font-black text-emerald-800 mt-1 font-mono">{metrics.disponible}</div>
         </button>
 
-        {/* Recibido en tienda/obra */}
+        {/* Sin existencias */}
         <button
-          onClick={() => setStatusFilter('recibido_tienda_obra')}
-          className={`bento-card p-3.5 text-left transition-all border-indigo-200 bg-indigo-50/30 ${
-            statusFilter === 'recibido_tienda_obra' ? 'ring-2 ring-indigo-500' : ''
-          }`}
-        >
-          <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 flex items-center justify-between">
-            <span>Tienda / obra</span>
-            <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
-          </div>
-          <div className="text-xl font-black text-indigo-800 mt-1 font-mono">{metrics.recibidoTiendaObra}</div>
-        </button>
-
-        {/* Cancelado */}
-        <button
-          onClick={() => setStatusFilter('cancelado')}
+          onClick={() => setStatusFilter('sin_existencias')}
           className={`bento-card p-3.5 text-left transition-all border-rose-200 bg-rose-50/30 ${
-            statusFilter === 'cancelado' ? 'ring-2 ring-rose-500' : ''
+            statusFilter === 'sin_existencias' ? 'ring-2 ring-rose-500' : ''
           }`}
         >
           <div className="text-[11px] font-bold uppercase tracking-wider text-rose-700 flex items-center justify-between">
-            <span>Cancelado</span>
+            <span>Sin existencias</span>
             <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
           </div>
-          <div className="text-xl font-black text-rose-800 mt-1 font-mono">{metrics.cancelado}</div>
+          <div className="text-xl font-black text-rose-800 mt-1 font-mono">{metrics.sinExistencias}</div>
         </button>
 
-        {/* Por tramitar */}
+        {/* Reservado */}
         <button
-          onClick={() => setStatusFilter('por_tramitar')}
+          onClick={() => setStatusFilter('reservado')}
           className={`bento-card p-3.5 text-left transition-all border-purple-200 bg-purple-50/30 ${
-            statusFilter === 'por_tramitar' ? 'ring-2 ring-purple-500' : ''
+            statusFilter === 'reservado' ? 'ring-2 ring-purple-500' : ''
           }`}
         >
           <div className="text-[11px] font-bold uppercase tracking-wider text-purple-700 flex items-center justify-between">
-            <span>Por tramitar</span>
+            <span>Reservado</span>
             <Bookmark className="w-3.5 h-3.5 text-purple-600" />
           </div>
-          <div className="text-xl font-black text-purple-800 mt-1 font-mono">{metrics.porTramitar}</div>
+          <div className="text-xl font-black text-purple-800 mt-1 font-mono">{metrics.reservado}</div>
         </button>
 
+        {/* Descatalogado */}
+        <button
+          onClick={() => setStatusFilter('descatalogado')}
+          className={`bento-card p-3.5 text-left transition-all border-slate-200 bg-slate-50/60 ${
+            statusFilter === 'descatalogado' ? 'ring-2 ring-slate-500' : ''
+          }`}
+        >
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center justify-between">
+            <span>Descatalogado</span>
+            <Ban className="w-3.5 h-3.5 text-slate-500" />
+          </div>
+          <div className="text-xl font-black text-slate-800 mt-1 font-mono">{metrics.descatalogado}</div>
+        </button>
       </div>
 
       {/* Filters Bar */}
@@ -430,11 +402,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             className="px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-[#EA1D24] font-semibold"
           >
             <option value="all">Todos los estados</option>
-            <option value="por_tramitar">🔵 Por tramitar</option>
-            <option value="pendiente_recibir">🟡 A la espera de recibirlo</option>
-            <option value="recibido_tienda_obra">🔵 Recibido en tienda/obra</option>
-            <option value="recibido">🟢 Recibido</option>
-            <option value="cancelado">⚪ Cancelado</option>
+            <option value="pendiente_recibir">🟡 Pendiente de recibir</option>
+            <option value="disponible">🟢 Disponible</option>
+            <option value="sin_existencias">🔴 Sin existencias</option>
+            <option value="reservado">🟣 Reservado</option>
+            <option value="descatalogado">⚪ Descatalogado</option>
           </select>
 
           {/* Provider filter */}

@@ -162,7 +162,6 @@ async function createTables() {
         imagen_url TEXT,
         categoria TEXT NOT NULL,
         stock_minimo INTEGER NOT NULL DEFAULT 5,
-        stock_fuera_almacen REAL NOT NULL DEFAULT 0,
         proveedor_id TEXT,
         proyecto_id TEXT,
         fecha_creacion TEXT NOT NULL,
@@ -196,9 +195,6 @@ async function createTables() {
         material_categoria TEXT,
         proveedor_sugerido TEXT,
         cantidad REAL NOT NULL,
-        cantidad_recibida REAL NOT NULL DEFAULT 0,
-        cantidad_adjudicada REAL NOT NULL DEFAULT 0,
-        cantidad_almacen REAL NOT NULL DEFAULT 0,
         unidad TEXT NOT NULL DEFAULT 'uds',
         proyecto_id TEXT,
         usuario_id TEXT NOT NULL,
@@ -437,10 +433,6 @@ async function createTables() {
   try { db.run("ALTER TABLE projects ADD COLUMN fecha_fin TEXT"); } catch (e) {}
   try { db.run("ALTER TABLE products ADD COLUMN referencia TEXT"); } catch (e) {}
   try { db.run("ALTER TABLE products ADD COLUMN estado TEXT DEFAULT 'activo'"); } catch (e) {}
-  try { await runSql("ALTER TABLE products ADD COLUMN stock_fuera_almacen REAL NOT NULL DEFAULT 0"); } catch (e) {}
-  try { await runSql("ALTER TABLE orders ADD COLUMN cantidad_recibida REAL NOT NULL DEFAULT 0"); } catch (e) {}
-  try { await runSql("ALTER TABLE orders ADD COLUMN cantidad_adjudicada REAL NOT NULL DEFAULT 0"); } catch (e) {}
-  try { await runSql("ALTER TABLE orders ADD COLUMN cantidad_almacen REAL NOT NULL DEFAULT 0"); } catch (e) {}
   try { db.run("ALTER TABLE categories ADD COLUMN nomenclatura TEXT"); } catch (e) {}
 }
 
@@ -832,7 +824,6 @@ export async function execute(sql: string, params: any[] = []): Promise<void> {
 // Business logic queries for Stock calculations
 export async function getProductStockMetrics(productId: string): Promise<{
   stock_actual: number;
-  stock_fuera_almacen: number;
   stock_reservado: number;
   stock_disponible: number;
 }> {
@@ -854,18 +845,11 @@ export async function getProductStockMetrics(productId: string): Promise<{
     else if (r.tipo === 'reserva') reservas = Number(r.total) || 0;
   }
 
-  const product = await queryOne<{ stock_fuera_almacen?: number }>(
-    'SELECT stock_fuera_almacen FROM products WHERE id = ?',
-    [productId]
-  );
-  const stock_fuera_almacen = Number(product?.stock_fuera_almacen) || 0;
-  const stock_almacen = entradas - salidas;
-  const stock_actual = stock_almacen + stock_fuera_almacen;
-  const stock_disponible = Math.max(0, stock_almacen - reservas);
+  const stock_actual = entradas - salidas;
+  const stock_disponible = Math.max(0, stock_actual - reservas);
 
   return {
     stock_actual,
-    stock_fuera_almacen,
     stock_reservado: reservas,
     stock_disponible
   };
@@ -882,10 +866,8 @@ export async function getProducts(options: {
       pr.nombre as proveedor_nombre,
       proj.nombre as proyecto_nombre,
       COALESCE((SELECT SUM(cantidad) FROM movements WHERE producto_id = p.id AND tipo = 'entrada'), 0) as total_entradas,
-      COALESCE((SELECT SUM(cantidad) FROM movements WHERE producto_id = p.id AND tipo = 'salida' AND COALESCE(observaciones, '') NOT LIKE '%desde tienda/obra%'), 0) as total_salidas,
+      COALESCE((SELECT SUM(cantidad) FROM movements WHERE producto_id = p.id AND tipo = 'salida'), 0) as total_salidas,
       COALESCE((SELECT SUM(cantidad) FROM movements WHERE producto_id = p.id AND tipo = 'reserva'), 0) as total_reservas
-      ,COALESCE((SELECT SUM(cantidad) FROM orders WHERE producto_id = p.id AND estado IN ('por_tramitar', 'pendiente_recibir')), 0) as unidades_solicitadas
-      ,COALESCE((SELECT SUM(cantidad_recibida - cantidad_adjudicada - cantidad_almacen) FROM orders WHERE producto_id = p.id AND estado = 'recibido_tienda_obra'), 0) as unidades_pendientes_almacen
     FROM products p
     LEFT JOIN providers pr ON p.proveedor_id = pr.id
     LEFT JOIN projects proj ON p.proyecto_id = proj.id
@@ -919,11 +901,9 @@ export async function getProducts(options: {
     const totalSalidas = Number(r.total_salidas) || 0;
     const totalReservas = Number(r.total_reservas) || 0;
 
-    const stock_fuera_almacen = Number(r.stock_fuera_almacen) || 0;
-    const stock_almacen = totalEntradas - totalSalidas;
-    const stock_actual = stock_almacen + stock_fuera_almacen;
+    const stock_actual = totalEntradas - totalSalidas;
     const stock_reservado = totalReservas;
-    const stock_disponible = Math.max(0, stock_almacen - stock_reservado);
+    const stock_disponible = Math.max(0, stock_actual - stock_reservado);
     const en_alerta = stock_disponible <= r.stock_minimo;
 
     return {
@@ -942,9 +922,6 @@ export async function getProducts(options: {
       proyecto_nombre: r.proyecto_nombre,
       fecha_creacion: r.fecha_creacion,
       stock_actual,
-      stock_fuera_almacen,
-      unidades_solicitadas: Number(r.unidades_solicitadas) || 0,
-      unidades_pendientes_almacen: Number(r.unidades_pendientes_almacen) || 0,
       stock_reservado,
       stock_disponible,
       en_alerta
@@ -1262,9 +1239,6 @@ export async function getOrders(options: {
   return rows.map((r) => ({
     ...r,
     cantidad: Number(r.cantidad),
-    cantidad_recibida: Number(r.cantidad_recibida) || 0,
-    cantidad_adjudicada: Number(r.cantidad_adjudicada) || 0,
-    cantidad_almacen: Number(r.cantidad_almacen) || 0,
     precio_estimado: r.precio_estimado ? Number(r.precio_estimado) : null
   }));
 }
@@ -1275,9 +1249,6 @@ export async function getOrderById(id: string): Promise<Order | null> {
   return {
     ...row,
     cantidad: Number(row.cantidad),
-    cantidad_recibida: Number(row.cantidad_recibida) || 0,
-    cantidad_adjudicada: Number(row.cantidad_adjudicada) || 0,
-    cantidad_almacen: Number(row.cantidad_almacen) || 0,
     precio_estimado: row.precio_estimado ? Number(row.precio_estimado) : null
   };
 }
@@ -1305,3 +1276,5 @@ export async function addRequestHistoryEntry(
   );
   persistDatabase();
 }
+
+
