@@ -43,20 +43,24 @@ const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
   const app = express();
-  let databaseReady = false;
+  let databaseStatus: 'starting' | 'ready' | 'error' = 'starting';
   app.use(express.json({ limit: '10mb' }));
 
   // API Routes
   app.get('/api/health', (req: Request, res: Response) => {
-    res.status(databaseReady ? 200 : 503).json({
-      status: databaseReady ? 'ok' : 'starting',
+    res.status(databaseStatus === 'ready' ? 200 : 503).json({
+      status: databaseStatus === 'ready' ? 'ok' : databaseStatus,
       timestamp: new Date().toISOString()
     });
   });
 
   app.use('/api', (req: Request, res: Response, next) => {
-    if (!databaseReady) {
-      return res.status(503).json({ error: 'La base de datos todavía se está inicializando' });
+    if (databaseStatus !== 'ready') {
+      return res.status(503).json({
+        error: databaseStatus === 'starting'
+          ? 'La base de datos todavía se está inicializando'
+          : 'No se pudo inicializar la base de datos; revisa los logs del servicio'
+      });
     }
     next();
   });
@@ -1833,10 +1837,11 @@ async function startServer() {
     console.log(`Servidor de Control de Stock corriendo en http://0.0.0.0:${PORT}`);
     initDatabase()
       .then(() => {
-        databaseReady = true;
+        databaseStatus = 'ready';
         console.log('Base de datos inicializada correctamente');
       })
       .catch((err) => {
+        databaseStatus = 'error';
         console.error('Error al inicializar la base de datos:', err);
       });
   });

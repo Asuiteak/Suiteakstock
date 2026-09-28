@@ -64,12 +64,22 @@ export async function initDatabase(): Promise<Database | null> {
     pgPool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined,
+      connectionTimeoutMillis: 10000,
+      query_timeout: 20000,
+    });
+    pgPool.on('error', (error) => {
+      console.error('Error inesperado en el pool de PostgreSQL:', error.message);
     });
 
+    console.log('Inicializando esquema PostgreSQL...');
     await createTables();
+    console.log('Esquema PostgreSQL listo; omitiendo datos demo...');
     await seedInitialData();
+    console.log('Comprobando usuario administrador...');
     await ensureDefaultUsers();
+    console.log('Comprobando categorías...');
     await ensureDefaultCategories();
+    console.log('Inicialización PostgreSQL completada');
     return null;
   }
 
