@@ -437,6 +437,11 @@ async function createTables() {
 }
 
 async function seedInitialData() {
+  if (USE_POSTGRES) {
+    console.log('Omitiendo datos de demostración en PostgreSQL');
+    return;
+  }
+
   // Check if users exist
   const userCountRow = await querySingleRow<{ count: number }>('SELECT COUNT(*) as count FROM users');
   const userCount = Number(userCountRow?.count ?? 0);
@@ -1278,4 +1283,3 @@ export async function addRequestHistoryEntry(
   );
   persistDatabase();
 }
-

@@ -42,14 +42,23 @@ import { MovementType } from './src/types';
 const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
-  await initDatabase();
-
   const app = express();
+  let databaseReady = false;
   app.use(express.json({ limit: '10mb' }));
 
   // API Routes
   app.get('/api/health', (req: Request, res: Response) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.status(databaseReady ? 200 : 503).json({
+      status: databaseReady ? 'ok' : 'starting',
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  app.use('/api', (req: Request, res: Response, next) => {
+    if (!databaseReady) {
+      return res.status(503).json({ error: 'La base de datos todavía se está inicializando' });
+    }
+    next();
   });
 
   // Time API: Official synchronized world time in Spain (Europe/Madrid)
@@ -1822,6 +1831,14 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor de Control de Stock corriendo en http://0.0.0.0:${PORT}`);
+    initDatabase()
+      .then(() => {
+        databaseReady = true;
+        console.log('Base de datos inicializada correctamente');
+      })
+      .catch((err) => {
+        console.error('Error al inicializar la base de datos:', err);
+      });
   });
 }
 
