@@ -754,6 +754,11 @@ async function seedInitialData() {
 }
 
 async function ensureDefaultUsers() {
+  if (USE_POSTGRES) {
+    console.log('Omitiendo usuario administrador de demostración en PostgreSQL');
+    return;
+  }
+
   const adminPass = hashPassword('12345');
   
   // Find if an admin or Adminsuiteak user exists
