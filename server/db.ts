@@ -654,7 +654,9 @@ async function seedInitialData() {
   const orderCountRow = await querySingleRow<{ count: number }>('SELECT COUNT(*) as count FROM orders');
   const orderCount = Number(orderCountRow?.count ?? 0);
 
-  if (orderCount === 0) {
+  // Demo orders reference demo requests and must never be seeded into production
+  // independently of the request rows that they depend on.
+  if (orderCount === 0 && !USE_POSTGRES) {
     const sampleOrders = [
       [
         'ord-1',
@@ -1276,5 +1278,4 @@ export async function addRequestHistoryEntry(
   );
   persistDatabase();
 }
-
 
