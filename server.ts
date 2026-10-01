@@ -27,7 +27,8 @@ import {
   getRequestHistory,
   addRequestHistoryEntry,
   execute,
-  queryOne
+  queryOne,
+  queryAll
 } from './server/db';
 import {
   authenticateToken,
@@ -195,7 +196,7 @@ async function startServer() {
       }
 
       // Check unique code
-      const existing = queryOne('SELECT id FROM products WHERE LOWER(codigo) = LOWER(?)', [codigo.trim()]);
+      const existing = await queryOne('SELECT id FROM products WHERE UPPER(TRIM(codigo)) = ?', [codigo.trim().toUpperCase()]);
       if (existing) {
         return res.status(400).json({ error: `Ya existe un producto con el código "${codigo}"` });
       }
@@ -203,7 +204,7 @@ async function startServer() {
       const id = 'prod-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
       const now = new Date().toISOString();
 
-      execute(
+      await execute(
         `INSERT INTO products (id, codigo, referencia, nombre, descripcion, imagen_url, categoria, stock_minimo, estado, proveedor_id, proyecto_id, fecha_creacion)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -226,7 +227,7 @@ async function startServer() {
       const initStockNum = Number(stock_inicial);
       if (!isNaN(initStockNum) && initStockNum > 0) {
         const moveId = 'mov-init-' + Date.now();
-        execute(
+        await execute(
           `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
            VALUES (?, ?, 'entrada', ?, ?, ?, ?, 'Stock inicial registrado al crear producto')`,
           [moveId, id, initStockNum, now, req.user!.id, proyecto_id || null]
@@ -282,7 +283,7 @@ async function startServer() {
           });
         }
 
-        execute(
+        await execute(
           `UPDATE products SET proveedor_id = ? WHERE id = ?`,
           [proveedor_id ? (proveedor_id || null) : null, id]
         );
@@ -291,10 +292,17 @@ async function startServer() {
         return res.json(updated);
       }
 
-      if (codigo && codigo.trim().toUpperCase() !== current.codigo) {
-        const duplicate = await queryOne('SELECT id FROM products WHERE LOWER(codigo) = LOWER(?) AND id != ?', [codigo.trim(), id]);
+      const normalizedCurrentCode = String(current.codigo || '').trim().toUpperCase();
+      const requestedCode = codigo === undefined ? '' : String(codigo).trim();
+      const normalizedRequestedCode = requestedCode ? requestedCode.toUpperCase() : normalizedCurrentCode;
+
+      if (normalizedRequestedCode !== normalizedCurrentCode) {
+        const duplicate = await queryOne(
+          'SELECT id FROM products WHERE UPPER(TRIM(codigo)) = ? AND id <> ?',
+          [normalizedRequestedCode, id]
+        );
         if (duplicate) {
-          return res.status(400).json({ error: `El código "${codigo}" ya está en uso por otro producto` });
+          return res.status(400).json({ error: `El código "${normalizedRequestedCode}" ya está en uso por otro producto` });
         }
       }
 
@@ -305,7 +313,7 @@ async function startServer() {
 
       const finalEstado = estado !== undefined ? estado : (current.estado || 'activo');
 
-      execute(
+      await execute(
         `UPDATE products SET 
           codigo = ?, 
           referencia = ?,
@@ -319,7 +327,7 @@ async function startServer() {
           proyecto_id = ?
          WHERE id = ?`,
         [
-          codigo ? codigo.trim().toUpperCase() : current.codigo,
+          normalizedRequestedCode,
           referencia !== undefined ? (referencia?.trim() || null) : (current.referencia || null),
           nombre ? nombre.trim() : current.nombre,
           descripcion !== undefined ? descripcion : current.descripcion,
@@ -351,9 +359,9 @@ async function startServer() {
       }
 
       // Eliminar peticiones y movimientos asociados primero
-      execute('DELETE FROM material_requests WHERE producto_id = ?', [id]);
-      execute('DELETE FROM movements WHERE producto_id = ?', [id]);
-      execute('DELETE FROM products WHERE id = ?', [id]);
+      await execute('DELETE FROM material_requests WHERE producto_id = ?', [id]);
+      await execute('DELETE FROM movements WHERE producto_id = ?', [id]);
+      await execute('DELETE FROM products WHERE id = ?', [id]);
 
       return res.json({ success: true, message: `Producto "${product.nombre}" y su histórico eliminados correctamente` });
     } catch (err: any) {
@@ -387,7 +395,7 @@ async function startServer() {
 
       const id = 'cat-' + Date.now();
       const nom = nomenclatura ? nomenclatura.trim().toUpperCase() : (trimmed.length >= 3 ? trimmed.substring(0, 3).toUpperCase() : 'OTR');
-      execute(
+      await execute(
         'INSERT INTO categories (id, nombre, descripcion, nomenclatura, orden) VALUES (?, ?, ?, ?, ?)',
         [id, trimmed, descripcion ? descripcion.trim() : null, nom, 10]
       );
@@ -423,14 +431,14 @@ async function startServer() {
 
       const oldName = current.nombre;
       const nom = nomenclatura !== undefined ? (nomenclatura ? nomenclatura.trim().toUpperCase() : null) : current.nomenclatura;
-      execute(
+      await execute(
         'UPDATE categories SET nombre = ?, descripcion = ?, nomenclatura = ? WHERE id = ?',
         [trimmed, descripcion !== undefined ? (descripcion ? descripcion.trim() : null) : current.descripcion, nom, id]
       );
 
       // Cascade update in products table if name changed
       if (oldName.toLowerCase() !== trimmed.toLowerCase()) {
-        execute('UPDATE products SET categoria = ? WHERE LOWER(TRIM(categoria)) = LOWER(?)', [trimmed, oldName.trim()]);
+        await execute('UPDATE products SET categoria = ? WHERE LOWER(TRIM(categoria)) = LOWER(?)', [trimmed, oldName.trim()]);
       }
 
       const all = await getCategories();
@@ -452,12 +460,12 @@ async function startServer() {
       }
 
       // Reassign products under this category to 'General'
-      execute(
+      await execute(
         "UPDATE products SET categoria = 'General' WHERE LOWER(TRIM(categoria)) = LOWER(?)",
         [current.nombre.trim()]
       );
 
-      execute('DELETE FROM categories WHERE id = ?', [id]);
+      await execute('DELETE FROM categories WHERE id = ?', [id]);
       return res.json({ success: true, message: `Categoría "${current.nombre}" eliminada correctamente` });
     } catch (err: any) {
       console.error('Error eliminando categoría:', err);
@@ -548,7 +556,7 @@ async function startServer() {
       const movementId = 'mov-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
       const now = new Date().toISOString();
 
-      execute(
+      await execute(
         `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -602,7 +610,7 @@ async function startServer() {
         }
       }
 
-      execute('DELETE FROM movements WHERE id = ?', [id]);
+      await execute('DELETE FROM movements WHERE id = ?', [id]);
       const updatedProduct = await getProductById(movement.producto_id);
 
       return res.json({
@@ -694,7 +702,7 @@ async function startServer() {
       const validStatuses = ['activo', 'comienza_en', 'finalizado'];
       const projectStatus = validStatuses.includes(estado) ? estado : 'activo';
 
-      execute(
+      await execute(
         `INSERT INTO projects (id, nombre, cliente, direccion, estado, fecha_inicio, fecha_fin, fecha_creacion)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -730,7 +738,7 @@ async function startServer() {
       const validStatuses = ['activo', 'comienza_en', 'finalizado'];
       const projectStatus = estado && validStatuses.includes(estado) ? estado : current.estado;
 
-      execute(
+      await execute(
         `UPDATE projects SET 
           nombre = ?, 
           cliente = ?, 
@@ -767,10 +775,10 @@ async function startServer() {
       }
 
       // Desvincular productos, movimientos y solicitudes de este proyecto
-      execute('DELETE FROM material_requests WHERE proyecto_id = ?', [id]);
-      execute('UPDATE products SET proyecto_id = NULL WHERE proyecto_id = ?', [id]);
-      execute('UPDATE movements SET proyecto_id = NULL WHERE proyecto_id = ?', [id]);
-      execute('DELETE FROM projects WHERE id = ?', [id]);
+      await execute('DELETE FROM material_requests WHERE proyecto_id = ?', [id]);
+      await execute('UPDATE products SET proyecto_id = NULL WHERE proyecto_id = ?', [id]);
+      await execute('UPDATE movements SET proyecto_id = NULL WHERE proyecto_id = ?', [id]);
+      await execute('DELETE FROM projects WHERE id = ?', [id]);
 
       return res.json({ success: true, message: `Obra "${project.nombre}" eliminada correctamente.` });
     } catch (err: any) {
@@ -798,7 +806,7 @@ async function startServer() {
       }
 
       const id = 'prov-' + Date.now();
-      execute(
+      await execute(
         `INSERT INTO providers (id, nombre, contacto, email, telefono, direccion, logo_url)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [id, nombre.trim(), contacto?.trim() || null, email?.trim() || null, telefono?.trim() || null, direccion?.trim() || null, logo_url || null]
@@ -832,7 +840,7 @@ async function startServer() {
         return res.status(400).json({ error: 'El nombre del proveedor es obligatorio' });
       }
 
-      execute(
+      await execute(
         `UPDATE providers SET nombre = ?, contacto = ?, email = ?, telefono = ?, direccion = ?, logo_url = ? WHERE id = ?`,
         [
           nombre.trim(),
@@ -862,8 +870,8 @@ async function startServer() {
       }
 
       // Unlink products associated with this provider
-      execute('UPDATE products SET proveedor_id = NULL WHERE proveedor_id = ?', [id]);
-      execute('DELETE FROM providers WHERE id = ?', [id]);
+      await execute('UPDATE products SET proveedor_id = NULL WHERE proveedor_id = ?', [id]);
+      await execute('DELETE FROM providers WHERE id = ?', [id]);
 
       return res.json({ success: true, message: `Proveedor "${provider.nombre}" eliminado correctamente.` });
     } catch (err: any) {
@@ -912,7 +920,7 @@ async function startServer() {
       const passwordHash = hashPassword(password.trim());
       const now = new Date().toISOString();
 
-      execute(
+      await execute(
         `INSERT INTO users (id, nombre, email, password_hash, rol, fecha_creacion)
          VALUES (?, ?, ?, ?, ?, ?)`,
         [userId, cleanNombre, cleanEmail, passwordHash, userRole, now]
@@ -960,12 +968,12 @@ async function startServer() {
 
       if (password && password.trim()) {
         const passwordHash = hashPassword(password.trim());
-        execute(
+        await execute(
           `UPDATE users SET nombre = ?, email = ?, rol = ?, password_hash = ? WHERE id = ?`,
           [cleanNombre, cleanEmail, userRole, passwordHash, id]
         );
       } else {
-        execute(
+        await execute(
           `UPDATE users SET nombre = ?, email = ?, rol = ? WHERE id = ?`,
           [cleanNombre, cleanEmail, userRole, id]
         );
@@ -1000,7 +1008,7 @@ async function startServer() {
         }
       }
 
-      execute('DELETE FROM users WHERE id = ?', [id]);
+      await execute('DELETE FROM users WHERE id = ?', [id]);
       return res.json({ success: true, message: `Usuario "${targetUser.nombre}" eliminado correctamente.` });
     } catch (err: any) {
       console.error('Error eliminando usuario:', err);
@@ -1096,7 +1104,7 @@ async function startServer() {
       const requestUnit = unidad?.trim() || 'uds';
       const userId = req.user?.id || 'usr-oper-1';
 
-      execute(
+      await execute(
         `INSERT INTO material_requests (
           id, tipo_solicitud, es_material_nuevo, producto_id, material_nombre,
           material_descripcion, material_categoria, proveedor_sugerido, cantidad, unidad,
@@ -1179,7 +1187,7 @@ async function startServer() {
       const now = new Date().toISOString();
       const updatedNotes = resolucion_notas !== undefined ? (resolucion_notas?.trim() || null) : current.resolucion_notas;
 
-      execute(
+      await execute(
         `UPDATE material_requests SET 
           estado = ?, 
           resolucion_notas = ?, 
@@ -1210,7 +1218,7 @@ async function startServer() {
         const moveId = 'mov-' + Date.now();
         const moveObs = `Automático por solicitud #${id}: ${estado === 'preparado' ? 'Preparación de carga' : 'Entrega a obra'} (${current.material_nombre})`;
 
-        execute(
+        await execute(
           `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -1302,7 +1310,7 @@ async function startServer() {
 
       const now = new Date().toISOString();
 
-      execute(
+      await execute(
         `UPDATE material_requests SET 
           material_nombre = ?,
           material_descripcion = ?,
@@ -1388,8 +1396,8 @@ async function startServer() {
         return res.status(403).json({ error: 'No tienes permisos para eliminar esta solicitud' });
       }
 
-      execute('DELETE FROM request_history WHERE solicitud_id = ?', [id]);
-      execute('DELETE FROM material_requests WHERE id = ?', [id]);
+      await execute('DELETE FROM request_history WHERE solicitud_id = ?', [id]);
+      await execute('DELETE FROM material_requests WHERE id = ?', [id]);
       return res.json({ success: true, message: 'Solicitud eliminada' });
     } catch (err: any) {
       return res.status(500).json({ error: 'Error al eliminar la solicitud' });
@@ -1440,6 +1448,10 @@ async function startServer() {
         producto_codigo,
         producto_nombre,
         producto_categoria,
+        codigo_producto,
+        categoria_producto,
+        stock_minimo,
+        descripcion_producto,
         referencia,
         proveedor_id,
         proveedor_nombre,
@@ -1473,7 +1485,9 @@ async function startServer() {
       const orderNum = 'PED-' + new Date().getFullYear() + '-' + Math.floor(1000 + Math.random() * 9000);
       const now = new Date().toISOString();
       const orderDate = fecha_pedido?.trim() || now;
-      const orderStatus = estado || 'pendiente_recibir';
+      const orderStatus = ['por_tramitar', 'pendiente_recibir', 'recibido_tienda_obra', 'recibido', 'cancelado'].includes(estado)
+        ? estado
+        : 'por_tramitar';
 
       // Fetch supplier details if supplier id given
       let provName = proveedor_nombre?.trim() || null;
@@ -1495,21 +1509,103 @@ async function startServer() {
         if (proj) projName = proj.nombre;
       }
 
-      execute(
+      let linkedProductId = producto_id || null;
+      let linkedProductCode = producto_codigo?.trim() || null;
+      if (linkedProductId) {
+        const linkedProduct = await getProductById(linkedProductId);
+        if (!linkedProduct) {
+          return res.status(404).json({ error: 'El producto seleccionado no existe' });
+        }
+        linkedProductCode = linkedProduct.codigo;
+      } else {
+        const categoryName = (categoria_producto || producto_categoria || 'General').trim();
+        const category = await queryOne<{ nomenclatura?: string }>(
+          'SELECT nomenclatura FROM categories WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))',
+          [categoryName]
+        );
+        const prefix = (category?.nomenclatura || categoryName.substring(0, 3) || 'GEN').trim().toUpperCase();
+        const requestedCode = (codigo_producto || '').trim().toUpperCase();
+        let newCode = requestedCode;
+
+        if (!newCode) {
+          const codeRows = await queryAll<{ codigo: string }>(
+            'SELECT codigo FROM products WHERE UPPER(codigo) LIKE ?',
+            [`${prefix}-%`]
+          );
+          const maxNumber = codeRows.reduce((max, row) => {
+            const match = String(row.codigo || '').match(new RegExp(`^${prefix}-(\\d+)$`, 'i'));
+            return match ? Math.max(max, Number(match[1])) : max;
+          }, 0);
+          newCode = `${prefix}-${String(maxNumber + 1).padStart(3, '0')}`;
+        }
+
+        const duplicate = await queryOne('SELECT id FROM products WHERE UPPER(TRIM(codigo)) = ?', [newCode]);
+        if (duplicate) {
+          return res.status(400).json({ error: `El código "${newCode}" ya está en uso por otro producto` });
+        }
+
+        linkedProductId = 'prod-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+        linkedProductCode = newCode;
+        await execute(
+          `INSERT INTO products (
+            id, codigo, referencia, nombre, descripcion, imagen_url, categoria, stock_minimo,
+            estado, proveedor_id, proyecto_id, fecha_creacion
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            linkedProductId,
+            newCode,
+            referencia?.trim() || null,
+            prodName,
+            descripcion_producto?.trim() || null,
+            null,
+            categoryName,
+            Number(stock_minimo) >= 0 ? Number(stock_minimo) : 5,
+            'bajo_pedido',
+            proveedor_id || null,
+            proyecto_id || null,
+            now
+          ]
+        );
+
+      }
+
+      if (orderStatus === 'recibido') {
+        await execute(`UPDATE products SET estado = 'activo' WHERE id = ?`, [linkedProductId]);
+        await execute(
+          `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
+           VALUES (?, ?, 'entrada', ?, ?, ?, ?, ?)`,
+          [
+            `mov-ent-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            linkedProductId,
+            qty,
+            now,
+            req.user!.id,
+            proyecto_id || null,
+            `Entrada por pedido ${orderNum} recibido directamente en almacén`
+          ]
+        );
+      } else if (orderStatus === 'recibido_tienda_obra') {
+        await execute(
+          `UPDATE products SET estado = 'activo', stock_fuera_almacen = COALESCE(stock_fuera_almacen, 0) + ? WHERE id = ?`,
+          [qty, linkedProductId]
+        );
+      }
+
+      await execute(
         `INSERT INTO orders (
           id, numero_pedido, solicitud_id, producto_id, producto_codigo, producto_nombre,
           producto_categoria, referencia, proveedor_id, proveedor_nombre, proveedor_telefono,
-          proveedor_email, cantidad, unidad, precio_estimado, proyecto_id, proyecto_nombre,
+          proveedor_email, cantidad, cantidad_recibida, cantidad_adjudicada, cantidad_almacen, unidad, precio_estimado, proyecto_id, proyecto_nombre,
           usuario_id, usuario_nombre, operario_solicitante_id, operario_solicitante_nombre,
           fecha_pedido, fecha_estimada_entrega, fecha_recepcion, estado, notas, albaran_o_factura,
           fecha_creacion, fecha_actualizacion
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           orderNum,
           solicitud_id || null,
-          producto_id || null,
-          producto_codigo || null,
+          linkedProductId,
+          linkedProductCode,
           prodName,
           producto_categoria?.trim() || null,
           referencia?.trim() || null,
@@ -1518,6 +1614,9 @@ async function startServer() {
           provPhone,
           provEmail,
           qty,
+          orderStatus === 'recibido' || orderStatus === 'recibido_tienda_obra' ? qty : 0,
+          0,
+          orderStatus === 'recibido' ? qty : 0,
           unidad?.trim() || 'uds',
           precio_estimado ? Number(precio_estimado) : null,
           proyecto_id || null,
@@ -1528,7 +1627,7 @@ async function startServer() {
           operario_solicitante_nombre || null,
           orderDate,
           fecha_estimada_entrega?.trim() || null,
-          null,
+          orderStatus === 'recibido' || orderStatus === 'recibido_tienda_obra' ? now : null,
           orderStatus,
           notas?.trim() || null,
           albaran_o_factura?.trim() || null,
@@ -1539,7 +1638,7 @@ async function startServer() {
 
       // If linked to a request: update request status to 'pedido_realizado' and log history!
       if (solicitud_id) {
-        execute(
+        await execute(
           `UPDATE material_requests SET estado = 'pedido_realizado', fecha_actualizacion = ? WHERE id = ?`,
           [now, solicitud_id]
         );
@@ -1555,11 +1654,11 @@ async function startServer() {
         );
       }
 
-      // If product exists, update status to 'bajo_pedido'
-      if (producto_id) {
-        execute(
-          `UPDATE products SET estado = 'bajo_pedido' WHERE id = ?`,
-          [producto_id]
+      // Existing products remain linked and are marked as awaiting delivery.
+      if (linkedProductId && producto_id && (orderStatus === 'por_tramitar' || orderStatus === 'pendiente_recibir')) {
+        await execute(
+          `UPDATE products SET estado = 'bajo_pedido' WHERE id = ? AND estado <> 'descatalogado'`,
+          [linkedProductId]
         );
       }
 
@@ -1597,8 +1696,16 @@ async function startServer() {
 
       const now = new Date().toISOString();
       const newStatus = estado || current.estado;
+      const receivedToWarehouse = newStatus === 'recibido'
+        ? current.estado === 'recibido_tienda_obra'
+          ? Math.max(0, Number(current.cantidad_recibida || current.cantidad) - Number(current.cantidad_adjudicada || 0) - Number(current.cantidad_almacen || 0))
+          : current.estado === 'recibido' ? 0 : current.cantidad
+        : 0;
+      const totalReceivedForStatus = current.estado === 'recibido_tienda_obra'
+        ? Number(current.cantidad_recibida) || current.cantidad
+        : current.cantidad;
 
-      execute(
+      await execute(
         `UPDATE orders SET 
           estado = ?,
           fecha_estimada_entrega = ?,
@@ -1631,6 +1738,72 @@ async function startServer() {
           id
         ]
       );
+      if (current.producto_id && current.estado !== newStatus) {
+        if (newStatus === 'recibido') {
+          if (current.estado === 'recibido_tienda_obra' && receivedToWarehouse > 0) {
+            await execute(
+              `UPDATE products
+               SET stock_fuera_almacen = CASE
+                 WHEN COALESCE(stock_fuera_almacen, 0) >= ? THEN COALESCE(stock_fuera_almacen, 0) - ?
+                 ELSE 0
+               END
+               WHERE id = ?`,
+              [receivedToWarehouse, receivedToWarehouse, current.producto_id]
+            );
+          }
+          await execute(`UPDATE products SET estado = 'activo' WHERE id = ?`, [current.producto_id]);
+          if (receivedToWarehouse > 0) {
+            await execute(
+              `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
+               VALUES (?, ?, 'entrada', ?, ?, ?, ?, ?)`,
+              [
+                `mov-ent-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                current.producto_id,
+                receivedToWarehouse,
+                now,
+                req.user!.id,
+                current.proyecto_id || null,
+                `Entrada por cambio de estado del pedido ${current.numero_pedido}`
+              ]
+            );
+          }
+        } else if (newStatus === 'recibido_tienda_obra') {
+          await execute(
+            `UPDATE products SET estado = 'activo', stock_fuera_almacen = COALESCE(stock_fuera_almacen, 0) + ? WHERE id = ?`,
+            [current.cantidad, current.producto_id]
+          );
+        } else if (newStatus === 'por_tramitar' || newStatus === 'pendiente_recibir') {
+          await execute(
+            `UPDATE products SET estado = 'bajo_pedido' WHERE id = ? AND estado <> 'descatalogado'`,
+            [current.producto_id]
+          );
+        }
+      }
+
+      if (newStatus === 'recibido' && current.estado !== 'recibido') {
+        await execute(
+          `UPDATE orders SET
+             cantidad_recibida = ?,
+             cantidad_almacen = COALESCE(cantidad_almacen, 0) + ?,
+             fecha_recepcion = COALESCE(?, ?)
+           WHERE id = ?`,
+          [totalReceivedForStatus, receivedToWarehouse, fecha_recepcion?.trim() || null, now, id]
+        );
+      } else if (newStatus === 'recibido_tienda_obra' && current.estado !== newStatus) {
+        await execute(
+          `UPDATE orders SET cantidad_recibida = cantidad, cantidad_almacen = 0, fecha_recepcion = COALESCE(?, ?) WHERE id = ?`,
+          [fecha_recepcion?.trim() || null, now, id]
+        );
+      }
+
+      if (newStatus === 'cancelado' && current.producto_id) {
+        await execute(
+          `UPDATE products SET estado = 'descatalogado' WHERE id = ? AND NOT EXISTS (
+             SELECT 1 FROM movements WHERE producto_id = ? AND tipo = 'entrada'
+           )`,
+          [current.producto_id, current.producto_id]
+        );
+      }
 
       // If status changed and linked to request, update request history
       if (current.solicitud_id && newStatus !== current.estado) {
@@ -1662,17 +1835,33 @@ async function startServer() {
       if (!order) {
         return res.status(404).json({ error: 'Pedido no encontrado' });
       }
+      if (order.estado !== 'pendiente_recibir') {
+        return res.status(400).json({ error: 'Solo se pueden recepcionar pedidos pendientes de recibir' });
+      }
 
       const {
+        producto_id,
+        cantidad_recibida,
         codigo_producto,
         categoria_producto,
+        nombre_producto,
         stock_minimo,
         descripcion_producto,
         albaran
       } = req.body;
 
       const now = new Date().toISOString();
-      let targetProductId = order.producto_id;
+      const previousReceived = Number(order.cantidad_recibida) || 0;
+      const remainingQuantity = Math.max(0, Number(order.cantidad) - previousReceived);
+      const receivedQuantity = Number(cantidad_recibida ?? remainingQuantity);
+      if (!Number.isFinite(receivedQuantity) || receivedQuantity <= 0 || receivedQuantity > remainingQuantity) {
+        return res.status(400).json({ error: `La cantidad debe ser mayor que 0 y no superar las ${remainingQuantity} unidades pendientes` });
+      }
+      const totalReceived = previousReceived + receivedQuantity;
+      const orderFullyReceived = totalReceived >= Number(order.cantidad);
+      const warehouseQuantity = (Number(order.cantidad_almacen) || 0) + receivedQuantity;
+
+      let targetProductId = producto_id || order.producto_id;
       let targetProductCode = order.producto_codigo;
 
       // If product does not yet exist in catalog, create it now!
@@ -1686,7 +1875,7 @@ async function startServer() {
           const newProdId = 'prod-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
           const minStock = stock_minimo ? Number(stock_minimo) : 5;
 
-          execute(
+          await execute(
             `INSERT INTO products (
               id, codigo, referencia, nombre, descripcion, imagen_url, categoria, stock_minimo, estado, proveedor_id, proyecto_id, fecha_creacion
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1694,7 +1883,7 @@ async function startServer() {
               newProdId,
               generatedCode,
               order.referencia || null,
-              order.producto_nombre,
+              nombre_producto?.trim() || order.producto_nombre,
               descripcion_producto?.trim() || order.notas || null,
               null,
               categoria_producto?.trim() || order.producto_categoria || 'General',
@@ -1710,19 +1899,24 @@ async function startServer() {
           targetProductCode = generatedCode;
         }
       } else {
-        execute(`UPDATE products SET estado = 'activo' WHERE id = ?`, [targetProductId]);
+        const selectedProduct = await getProductById(targetProductId);
+        if (!selectedProduct) {
+          return res.status(404).json({ error: 'El producto seleccionado no existe' });
+        }
+        targetProductCode = selectedProduct.codigo;
+        await execute(`UPDATE products SET estado = 'activo' WHERE id = ?`, [targetProductId]);
       }
 
       const movementId = 'mov-ent-' + Date.now();
       const movementObs = `Entrada por recepción de pedido ${order.numero_pedido}${albaran ? ` (Albarán: ${albaran})` : ''} de proveedor ${order.proveedor_nombre || 'distribuidor'}`;
 
-      execute(
+      await execute(
         `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
          VALUES (?, ?, 'entrada', ?, ?, ?, ?, ?)`,
         [
           movementId,
           targetProductId,
-          order.cantidad,
+          receivedQuantity,
           now,
           req.user!.id,
           order.proyecto_id || null,
@@ -1730,18 +1924,23 @@ async function startServer() {
         ]
       );
 
-      execute(
+      await execute(
         `UPDATE orders SET 
-          estado = 'recibido',
+          estado = ?,
           producto_id = ?,
           producto_codigo = ?,
+          cantidad_recibida = ?,
+          cantidad_almacen = ?,
           fecha_recepcion = ?,
           albaran_o_factura = COALESCE(?, albaran_o_factura),
           fecha_actualizacion = ?
          WHERE id = ?`,
         [
+          orderFullyReceived ? 'recibido' : 'pendiente_recibir',
           targetProductId,
           targetProductCode,
+          totalReceived,
+          warehouseQuantity,
           now,
           albaran?.trim() || null,
           now,
@@ -1749,8 +1948,8 @@ async function startServer() {
         ]
       );
 
-      if (order.solicitud_id) {
-        execute(
+      if (order.solicitud_id && orderFullyReceived) {
+        await execute(
           `UPDATE material_requests SET 
             estado = 'preparado', 
             producto_id = ?, 
@@ -1765,9 +1964,9 @@ async function startServer() {
           req.user!.id,
           req.user!.nombre,
           'cambio_estado',
-          `Material recibido en almacén mediante pedido ${order.numero_pedido}. Entrada registrada (+${order.cantidad} ${order.unidad}) y catalogado con código ${targetProductCode}.`,
+          `Material recibido en almacén mediante pedido ${order.numero_pedido}. Entrada registrada (+${receivedQuantity} ${order.unidad}) y catalogado con código ${targetProductCode}.`,
           JSON.stringify({ estado: 'pedido_realizado' }),
-          JSON.stringify({ estado: 'preparado', producto_codigo: targetProductCode })
+          JSON.stringify({ estado: 'preparado', producto_codigo: targetProductCode, cantidad: receivedQuantity })
         );
       }
 
@@ -1778,11 +1977,73 @@ async function startServer() {
         success: true,
         order: updatedOrder,
         product: catalogedProduct,
-        message: `Pedido ${order.numero_pedido} recibido. Se ha registrado una entrada de ${order.cantidad} ${order.unidad} y el producto está catalogado en stock.`
+        message: orderFullyReceived
+          ? `Pedido ${order.numero_pedido} recibido completo: ${receivedQuantity} ${order.unidad} añadidas al almacén.`
+          : `Recepción parcial registrada: ${receivedQuantity} ${order.unidad}. Quedan ${Number(order.cantidad) - totalReceived} pendientes de recibir.`
       });
     } catch (err: any) {
       console.error('Error al recepcionar pedido:', err);
       return res.status(500).json({ error: 'Error al recepcionar pedido en stock' });
+    }
+  });
+
+  app.post('/api/orders/:id/allocate', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const order = await getOrderById(req.params.id);
+      const quantity = Number(req.body.cantidad);
+      const projectId = String(req.body.proyecto_id || '').trim();
+      if (!order || order.estado !== 'recibido_tienda_obra' || !order.producto_id) {
+        return res.status(400).json({ error: 'Solo se pueden adjudicar pedidos recibidos en tienda/obra con producto catalogado' });
+      }
+      if (!projectId) return res.status(400).json({ error: 'La obra o proyecto es obligatorio' });
+      if (!Number.isFinite(quantity) || quantity <= 0 || quantity > order.cantidad) {
+        return res.status(400).json({ error: 'La cantidad adjudicada no es válida' });
+      }
+      const product = await getProductById(order.producto_id);
+      const pendingOutside = Number(order.cantidad_recibida || order.cantidad) - Number(order.cantidad_adjudicada || 0) - Number(order.cantidad_almacen || 0);
+      if (!product || pendingOutside < quantity || product.stock_fuera_almacen < quantity) {
+        return res.status(400).json({ error: 'No hay suficientes unidades pendientes fuera del almacén' });
+      }
+      const project = await getProjectById(projectId);
+      if (!project) return res.status(404).json({ error: 'La obra o proyecto no existe' });
+      const now = new Date().toISOString();
+      await execute(
+        `UPDATE products
+         SET stock_fuera_almacen = CASE
+           WHEN COALESCE(stock_fuera_almacen, 0) >= ? THEN COALESCE(stock_fuera_almacen, 0) - ?
+           ELSE 0
+         END
+         WHERE id = ?`,
+        [quantity, quantity, product.id]
+      );
+      await execute(
+        `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
+         VALUES (?, ?, 'salida', ?, ?, ?, ?, ?)`,
+        [
+          `mov-sal-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          product.id,
+          quantity,
+          now,
+          req.user!.id,
+          projectId,
+          `Adjudicación directa a ${project.nombre} desde tienda/obra. Pedido ${order.numero_pedido}${req.body.notas ? `: ${String(req.body.notas).trim()}` : ''}`
+        ]
+      );
+      await execute(
+        `UPDATE orders SET cantidad_adjudicada = COALESCE(cantidad_adjudicada, 0) + ? WHERE id = ?`,
+        [quantity, order.id]
+      );
+      const updatedOrder = await getOrderById(order.id);
+      const updatedProduct = await getProductById(product.id);
+      return res.json({
+        success: true,
+        order: updatedOrder,
+        product: updatedProduct,
+        message: `Se han adjudicado ${quantity} ${order.unidad} a ${project.nombre}`
+      });
+    } catch (err) {
+      console.error('Error al adjudicar pedido a obra:', err);
+      return res.status(500).json({ error: 'Error al adjudicar unidades a la obra' });
     }
   });
 
@@ -1795,7 +2056,7 @@ async function startServer() {
         return res.status(404).json({ error: 'Pedido no encontrado' });
       }
 
-      execute('DELETE FROM orders WHERE id = ?', [id]);
+      await execute('DELETE FROM orders WHERE id = ?', [id]);
       return res.json({ success: true, message: `Pedido ${order.numero_pedido} eliminado.` });
     } catch (err: any) {
       return res.status(500).json({ error: 'Error al eliminar pedido' });
