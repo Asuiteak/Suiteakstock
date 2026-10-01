@@ -96,6 +96,7 @@ export default function App() {
   const [orderToEdit, setOrderToEdit] = useState<Order | null>(null);
   const [orderFromRequest, setOrderFromRequest] = useState<MaterialRequest | null>(null);
   const [orderProduct, setOrderProduct] = useState<Product | null>(null);
+  const [existingProductOrderOnly, setExistingProductOrderOnly] = useState(false);
   const [isReceiveOrderModalOpen, setIsReceiveOrderModalOpen] = useState(false);
   const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
 
@@ -103,6 +104,7 @@ export default function App() {
     setOrderToEdit(null);
     setOrderFromRequest(null);
     setOrderProduct(product);
+    setExistingProductOrderOnly(false);
     setIsOrderModalOpen(true);
   };
 
@@ -232,6 +234,7 @@ export default function App() {
             stock_minimo: 5,
             fecha_creacion: '',
             stock_actual: 0,
+            stock_fuera_almacen: 0,
             stock_reservado: 0,
             stock_disponible: 0,
             en_alerta: false,
@@ -392,6 +395,8 @@ export default function App() {
             onCreateOrderFromRequest={(req) => {
               setOrderFromRequest(req);
               setOrderToEdit(null);
+              setOrderProduct(null);
+              setExistingProductOrderOnly(false);
               setIsOrderModalOpen(true);
             }}
             onShowToast={showToast}
@@ -410,11 +415,15 @@ export default function App() {
             onNewOrder={() => {
               setOrderToEdit(null);
               setOrderFromRequest(null);
+              setOrderProduct(null);
+              setExistingProductOrderOnly(false);
               setIsOrderModalOpen(true);
             }}
             onEditOrder={(order) => {
               setOrderToEdit(order);
               setOrderFromRequest(null);
+              setOrderProduct(null);
+              setExistingProductOrderOnly(false);
               setIsOrderModalOpen(true);
             }}
             onReceiveOrder={(order) => {
@@ -430,7 +439,13 @@ export default function App() {
                 showToast('No se encontró la solicitud de origen', 'info');
               }
             }}
-            onNavigateToProducts={() => setCurrentTab('products')}
+            onExistingOrder={() => {
+              setOrderToEdit(null);
+              setOrderFromRequest(null);
+              setOrderProduct(null);
+              setExistingProductOrderOnly(true);
+              setIsOrderModalOpen(true);
+            }}
             onShowToast={showToast}
           />
         )}
@@ -628,6 +643,7 @@ export default function App() {
         orderToEdit={orderToEdit}
         fromRequest={orderFromRequest}
         initialProduct={orderProduct}
+        existingProductOnly={existingProductOrderOnly}
         providers={providers}
         products={products}
         projects={projects}
@@ -637,6 +653,7 @@ export default function App() {
           setOrderToEdit(null);
           setOrderFromRequest(null);
           setOrderProduct(null);
+          setExistingProductOrderOnly(false);
         }}
         onSuccess={() => {
           showToast('Pedido a distribuidor tramitado y guardado correctamente');

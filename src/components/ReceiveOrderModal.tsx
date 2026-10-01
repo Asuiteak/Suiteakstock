@@ -12,7 +12,7 @@ import {
   PlusCircle,
   Hash
 } from 'lucide-react';
-import { Order, Product, Category } from '../types';
+import { Order, Product, Category, Project } from '../types';
 import { api } from '../lib/api';
 
 interface ReceiveOrderModalProps {
@@ -21,6 +21,7 @@ interface ReceiveOrderModalProps {
   order: Order | null;
   products: Product[];
   categoriesList?: Category[];
+  projects?: Project[];
   onSuccess: () => void;
   onShowToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -42,6 +43,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
   order,
   products,
   categoriesList = [],
+  projects = [],
   onSuccess,
   onShowToast,
 }) => {
@@ -50,6 +52,8 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
   const [cantidadRecibida, setCantidadRecibida] = useState('1');
   const [albaran, setAlbaran] = useState('');
   const [notasRecepcion, setNotasRecepcion] = useState('');
+  const [cantidadAdjudicada, setCantidadAdjudicada] = useState('1');
+  const [proyectoAdjudicacion, setProyectoAdjudicacion] = useState('');
 
   // Fields for new product cataloging
   const [codigoProducto, setCodigoProducto] = useState('');
@@ -68,11 +72,21 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
       ...products.map((p) => p.categoria).filter(Boolean),
     ])
   );
+  const pendingOutside = order
+    ? Math.max(
+        0,
+        Number(order.cantidad_recibida || order.cantidad) -
+          Number(order.cantidad_adjudicada || 0) -
+          Number(order.cantidad_almacen || 0)
+      )
+    : 0;
 
   useEffect(() => {
     if (!isOpen || !order) return;
 
-    setCantidadRecibida(String(order.cantidad));
+    setCantidadRecibida(String(Math.max(0, order.cantidad - (Number(order.cantidad_recibida) || 0))));
+    setCantidadAdjudicada(String(Math.min(1, Math.max(0, pendingOutside))));
+    setProyectoAdjudicacion(order.proyecto_id || '');
     setAlbaran('');
     setNotasRecepcion('');
     setError(null);
@@ -102,31 +116,43 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
     setCategoriaProducto('Materiales');
     setStockMinimo('5');
     setDescripcionProducto(order.notas ? `Catalogado a partir del pedido ${order.numero_pedido}. Notas: ${order.notas}` : '');
-  }, [isOpen, order, products]);
+  }, [isOpen, order, products, pendingOutside]);
 
   if (!isOpen || !order) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const numCant = Number(cantidadRecibida);
-    if (isNaN(numCant) || numCant <= 0) {
-      setError('La cantidad recibida debe ser mayor a 0');
-      return;
-    }
-
-    if (catalogMode === 'existing' && !selectedProductId) {
-      setError('Selecciona el producto del inventario al que sumar el stock.');
-      return;
-    }
-
-    if (catalogMode === 'new') {
-      if (!codigoProducto.trim()) {
-        setError('El código del producto a catalogar es obligatorio.');
+    if (order.estado === 'recibido_tienda_obra') {
+      const quantity = Number(cantidadAdjudicada);
+      if (!Number.isFinite(quantity) || quantity <= 0 || quantity > pendingOutside) {
+        setError(`La cantidad debe ser mayor que 0 y no superar las ${pendingOutside} unidades pendientes`);
         return;
       }
-      if (!nombreProducto.trim()) {
-        setError('El nombre del producto a catalogar es obligatorio.');
+      if (!proyectoAdjudicacion) {
+        setError('Selecciona la obra o proyecto de destino.');
         return;
+      }
+    } else {
+      if (!Number.isFinite(numCant) || numCant <= 0) {
+        setError('La cantidad recibida debe ser mayor a 0');
+        return;
+      }
+
+      if (catalogMode === 'existing' && !selectedProductId) {
+        setError('Selecciona el producto del inventario al que sumar el stock.');
+        return;
+      }
+
+      if (catalogMode === 'new') {
+        if (!codigoProducto.trim()) {
+          setError('El código del producto a catalogar es obligatorio.');
+          return;
+        }
+        if (!nombreProducto.trim()) {
+          setError('El nombre del producto a catalogar es obligatorio.');
+          return;
+        }
       }
     }
 
@@ -134,6 +160,17 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
     setError(null);
 
     try {
+      if (order.estado === 'recibido_tienda_obra') {
+        const result = await api.allocateOrderToProject(order.id, {
+          cantidad: Number(cantidadAdjudicada),
+          proyecto_id: proyectoAdjudicacion,
+          notas: notasRecepcion.trim() || undefined,
+        });
+        onShowToast(result.message, 'success');
+        onSuccess();
+        onClose();
+        return;
+      }
       const payload: any = {
         cantidad_recibida: numCant,
         albaran: albaran.trim() || undefined,
@@ -150,8 +187,8 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
         payload.descripcion_producto = descripcionProducto.trim() || undefined;
       }
 
-      await api.receiveOrder(order.id, payload);
-      onShowToast(`Pedido ${order.numero_pedido} recibido con éxito y stock catalogado`, 'success');
+      const result = await api.receiveOrder(order.id, payload);
+      onShowToast(result.message || `Recepción del pedido ${order.numero_pedido} registrada`, 'success');
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -172,10 +209,10 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
             </div>
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-                Recepción y Entrada de Material
+                {order.estado === 'recibido_tienda_obra' ? 'Adjudicación a Obra' : 'Recepción y Entrada de Material'}
               </span>
               <h2 className="text-base sm:text-lg font-bold text-white leading-tight">
-                Recepcionar Pedido {order.numero_pedido}
+                {order.estado === 'recibido_tienda_obra' ? 'Adjudicar Pedido' : `Recepcionar Pedido ${order.numero_pedido}`}
               </h2>
             </div>
           </div>
@@ -207,6 +244,28 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
         )}
 
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 flex-1">
+          {order.estado === 'recibido_tienda_obra' && (
+            <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50 space-y-3">
+              <div className="text-xs text-indigo-900">
+                El pedido llegó a tienda/obra. Puedes adjudicar una parte a la obra; el resto seguirá pendiente de entrada en almacén.
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="text-xs font-bold text-indigo-900">
+                  Cantidad a adjudicar
+                  <input type="number" min="0.1" max={pendingOutside} step="any" required value={cantidadAdjudicada} onChange={(e) => setCantidadAdjudicada(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white font-mono" />
+                </label>
+                <label className="text-xs font-bold text-indigo-900">
+                  Obra o proyecto
+                  <select required value={proyectoAdjudicacion} onChange={(e) => setProyectoAdjudicacion(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white">
+                    <option value="">-- Seleccionar destino --</option>
+                    {projects.map((project) => <option key={project.id} value={project.id}>{project.nombre}</option>)}
+                  </select>
+                </label>
+              </div>
+            </div>
+          )}
+          {order.estado !== 'recibido_tienda_obra' && (
+          <>
           {/* Albarán y Cantidad Real Recibida */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -216,13 +275,16 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
               <input
                 type="number"
                 min="0.1"
+                max={Math.max(0, order.cantidad - (Number(order.cantidad_recibida) || 0))}
                 step="any"
                 required
                 value={cantidadRecibida}
                 onChange={(e) => setCantidadRecibida(e.target.value)}
                 className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-mono font-bold bg-slate-50 focus:bg-white"
               />
-              <span className="text-[10px] text-slate-500">Unidades que entran físicamente en stock</span>
+              <span className="text-[10px] text-slate-500">
+                Pedido: {order.cantidad} · Recibidas: {Number(order.cantidad_recibida) || 0} · Pendientes: {Math.max(0, order.cantidad - (Number(order.cantidad_recibida) || 0))}
+              </span>
             </div>
 
             <div>
@@ -369,6 +431,8 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
               </select>
             </div>
           )}
+          </>
+          )}
 
           {/* Observaciones de Recepción */}
           <div>
@@ -406,7 +470,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
               ) : (
                 <>
                   <Check className="w-3.5 h-3.5" />
-                  <span>Confirmar Recepción y Entrada</span>
+                  <span>{order.estado === 'recibido_tienda_obra' ? 'Adjudicar a Obra' : 'Confirmar Recepción y Entrada'}</span>
                 </>
               )}
             </button>

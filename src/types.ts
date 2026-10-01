@@ -57,7 +57,10 @@ export interface Product {
   proyecto_nombre?: string;
   fecha_creacion: string;
   // Computed stock fields:
-  stock_actual: number;      // Total físico (entradas - salidas)
+  stock_actual: number;      // Total de unidades existentes (almacén + tienda/obra)
+  stock_fuera_almacen: number; // Unidades recibidas en tienda/obra
+  unidades_solicitadas: number;
+  unidades_pendientes_almacen: number;
   stock_reservado: number;   // Total reservado actualmente
   stock_disponible: number;  // Físico - reservado
   en_alerta: boolean;        // stock_disponible <= stock_minimo
@@ -144,10 +147,12 @@ export interface RequestHistoryEntry {
 }
 
 export type OrderStatus =
+  | 'por_tramitar'
   | 'disponible'
   | 'descatalogado'
   | 'sin_existencias'
   | 'pendiente_recibir'
+  | 'recibido_tienda_obra'
   | 'reservado'
   | 'recibido'
   | 'cancelado'
@@ -169,6 +174,9 @@ export interface Order {
   proveedor_telefono?: string | null;
   proveedor_email?: string | null;
   cantidad: number;
+  cantidad_recibida?: number;
+  cantidad_adjudicada?: number;
+  cantidad_almacen?: number;
   unidad: string;
   precio_estimado?: number | null;
   proyecto_id?: string | null;
