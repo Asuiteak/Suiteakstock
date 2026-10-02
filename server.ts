@@ -175,6 +175,7 @@ async function startServer() {
         categoria,
         stock_minimo,
         estado,
+        es_reutilizable,
         proveedor_id,
         proyecto_id,
         stock_inicial
@@ -205,8 +206,8 @@ async function startServer() {
       const now = new Date().toISOString();
 
       await execute(
-        `INSERT INTO products (id, codigo, referencia, nombre, descripcion, imagen_url, categoria, stock_minimo, estado, proveedor_id, proyecto_id, fecha_creacion)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO products (id, codigo, referencia, nombre, descripcion, imagen_url, categoria, stock_minimo, estado, es_reutilizable, proveedor_id, proyecto_id, fecha_creacion)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           codigo.trim().toUpperCase(),
@@ -217,6 +218,7 @@ async function startServer() {
           categoria.trim(),
           minStockNum,
           estado || 'activo',
+          es_reutilizable ? 1 : 0,
           proveedor_id || null,
           proyecto_id || null,
           now
@@ -230,7 +232,7 @@ async function startServer() {
         await execute(
           `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
            VALUES (?, ?, 'entrada', ?, ?, ?, ?, 'Stock inicial registrado al crear producto')`,
-          [moveId, id, initStockNum, now, req.user!.id, proyecto_id || null]
+          [moveId, id, initStockNum, now, req.user!.id, null]
         );
       }
 
@@ -255,6 +257,7 @@ async function startServer() {
         categoria,
         stock_minimo,
         estado,
+        es_reutilizable,
         proveedor_id,
         proyecto_id
       } = req.body;
@@ -275,6 +278,7 @@ async function startServer() {
           categoria !== undefined ||
           stock_minimo !== undefined ||
           estado !== undefined ||
+          es_reutilizable !== undefined ||
           proyecto_id !== undefined;
 
         if (isTryingToChangeOtherFields) {
@@ -323,6 +327,7 @@ async function startServer() {
           categoria = ?, 
           stock_minimo = ?, 
           estado = ?,
+          es_reutilizable = ?,
           proveedor_id = ?, 
           proyecto_id = ?
          WHERE id = ?`,
@@ -335,6 +340,7 @@ async function startServer() {
           categoria ? categoria.trim() : current.categoria,
           minStockNum,
           finalEstado,
+          es_reutilizable !== undefined ? (es_reutilizable ? 1 : 0) : (current.es_reutilizable ? 1 : 0),
           proveedor_id !== undefined ? (proveedor_id || null) : current.proveedor_id,
           proyecto_id !== undefined ? (proyecto_id || null) : current.proyecto_id,
           id
@@ -532,9 +538,9 @@ async function startServer() {
       // "El stock no puede ser negativo. Si una salida supera el stock disponible, se bloquea y se muestra error."
       const metrics = await getProductStockMetrics(producto_id);
       if (tipo === 'salida') {
-        if (qty > metrics.stock_actual) {
+        if (qty > metrics.stock_disponible) {
           return res.status(400).json({
-            error: `Operación bloqueada: Stock insuficiente. El stock físico actual es de ${metrics.stock_actual} unidades (solicitado: ${qty}).`
+            error: `Operación bloqueada: ${metrics.stock_disponible} unidades están disponibles; las reservadas no se pueden retirar.`
           });
         }
       }
@@ -587,6 +593,55 @@ async function startServer() {
   });
 
   // Movements: Undo / Delete (Admin or Movement Creator)
+  app.put('/api/movements/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const movement = await getMovementById(id);
+      if (!movement) return res.status(404).json({ error: 'Movimiento no encontrado' });
+      if (movement.tipo !== 'reserva') {
+        return res.status(400).json({ error: 'Solo se pueden editar reservas desde esta acción' });
+      }
+      if (req.user!.rol !== 'admin' && req.user!.id !== movement.usuario_id) {
+        return res.status(403).json({ error: 'No tienes permisos para editar esta reserva.' });
+      }
+
+      const quantity = Number(req.body.cantidad);
+      const projectId = String(req.body.proyecto_id || '').trim();
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return res.status(400).json({ error: 'La cantidad reservada debe ser mayor que cero.' });
+      }
+      if (!projectId) {
+        return res.status(400).json({ error: 'El proyecto es obligatorio para una reserva.' });
+      }
+      const project = await getProjectById(projectId);
+      if (!project) return res.status(404).json({ error: 'El proyecto seleccionado no existe.' });
+
+      const metrics = await getProductStockMetrics(movement.producto_id);
+      const availableIncludingThisReservation = metrics.stock_disponible + Number(movement.cantidad);
+      if (quantity > availableIncludingThisReservation) {
+        return res.status(400).json({
+          error: `Solo puedes reservar hasta ${availableIncludingThisReservation} unidades; el resto no está disponible.`
+        });
+      }
+
+      await execute(
+        'UPDATE movements SET cantidad = ?, proyecto_id = ? WHERE id = ?',
+        [quantity, projectId, id]
+      );
+      const updatedMovement = await getMovementById(id);
+      const updatedProduct = await getProductById(movement.producto_id);
+      return res.json({
+        success: true,
+        message: `Reserva actualizada: ${quantity} unidad(es) para ${project.nombre}.`,
+        movement: updatedMovement,
+        product: updatedProduct
+      });
+    } catch (err: any) {
+      console.error('Error actualizando reserva:', err);
+      return res.status(500).json({ error: 'Error al actualizar la reserva' });
+    }
+  });
+
   app.delete('/api/movements/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
@@ -1452,6 +1507,7 @@ async function startServer() {
         categoria_producto,
         stock_minimo,
         descripcion_producto,
+        es_reutilizable,
         referencia,
         proveedor_id,
         proveedor_nombre,
@@ -1466,7 +1522,6 @@ async function startServer() {
         operario_solicitante_nombre,
         fecha_pedido,
         fecha_estimada_entrega,
-        estado,
         notas,
         albaran_o_factura
       } = req.body;
@@ -1485,9 +1540,7 @@ async function startServer() {
       const orderNum = 'PED-' + new Date().getFullYear() + '-' + Math.floor(1000 + Math.random() * 9000);
       const now = new Date().toISOString();
       const orderDate = fecha_pedido?.trim() || now;
-      const orderStatus = ['por_tramitar', 'pendiente_recibir', 'recibido_tienda_obra', 'recibido', 'cancelado'].includes(estado)
-        ? estado
-        : 'por_tramitar';
+      const orderStatus = 'pendiente_recibir';
 
       // Fetch supplier details if supplier id given
       let provName = proveedor_nombre?.trim() || null;
@@ -1549,8 +1602,8 @@ async function startServer() {
         await execute(
           `INSERT INTO products (
             id, codigo, referencia, nombre, descripcion, imagen_url, categoria, stock_minimo,
-            estado, proveedor_id, proyecto_id, fecha_creacion
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            estado, es_reutilizable, proveedor_id, proyecto_id, fecha_creacion
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
           [
             linkedProductId,
             newCode,
@@ -1561,34 +1614,13 @@ async function startServer() {
             categoryName,
             Number(stock_minimo) >= 0 ? Number(stock_minimo) : 5,
             'bajo_pedido',
+            es_reutilizable ? 1 : 0,
             proveedor_id || null,
             proyecto_id || null,
             now
           ]
         );
 
-      }
-
-      if (orderStatus === 'recibido') {
-        await execute(`UPDATE products SET estado = 'activo' WHERE id = ?`, [linkedProductId]);
-        await execute(
-          `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
-           VALUES (?, ?, 'entrada', ?, ?, ?, ?, ?)`,
-          [
-            `mov-ent-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            linkedProductId,
-            qty,
-            now,
-            req.user!.id,
-            proyecto_id || null,
-            `Entrada por pedido ${orderNum} recibido directamente en almacén`
-          ]
-        );
-      } else if (orderStatus === 'recibido_tienda_obra') {
-        await execute(
-          `UPDATE products SET estado = 'activo', stock_fuera_almacen = COALESCE(stock_fuera_almacen, 0) + ? WHERE id = ?`,
-          [qty, linkedProductId]
-        );
       }
 
       await execute(
@@ -1614,9 +1646,9 @@ async function startServer() {
           provPhone,
           provEmail,
           qty,
-          orderStatus === 'recibido' || orderStatus === 'recibido_tienda_obra' ? qty : 0,
           0,
-          orderStatus === 'recibido' ? qty : 0,
+          0,
+          0,
           unidad?.trim() || 'uds',
           precio_estimado ? Number(precio_estimado) : null,
           proyecto_id || null,
@@ -1627,7 +1659,7 @@ async function startServer() {
           operario_solicitante_nombre || null,
           orderDate,
           fecha_estimada_entrega?.trim() || null,
-          orderStatus === 'recibido' || orderStatus === 'recibido_tienda_obra' ? now : null,
+          null,
           orderStatus,
           notas?.trim() || null,
           albaran_o_factura?.trim() || null,
@@ -1651,14 +1683,6 @@ async function startServer() {
           `Pedido ${orderNum} tramitado por administración al distribuidor "${provName || 'Proveedor'}". Cantidad: ${qty} ${unidad || 'uds'}.`,
           undefined,
           JSON.stringify({ numero_pedido: orderNum, cantidad: qty, proveedor: provName, precio_estimado })
-        );
-      }
-
-      // Existing products remain linked and are marked as awaiting delivery.
-      if (linkedProductId && producto_id && (orderStatus === 'por_tramitar' || orderStatus === 'pendiente_recibir')) {
-        await execute(
-          `UPDATE products SET estado = 'bajo_pedido' WHERE id = ? AND estado <> 'descatalogado'`,
-          [linkedProductId]
         );
       }
 
@@ -1696,15 +1720,29 @@ async function startServer() {
 
       const now = new Date().toISOString();
       const newStatus = estado || current.estado;
-      const receivedToWarehouse = newStatus === 'recibido'
-        ? current.estado === 'recibido_tienda_obra'
-          ? Math.max(0, Number(current.cantidad_recibida || current.cantidad) - Number(current.cantidad_adjudicada || 0) - Number(current.cantidad_almacen || 0))
-          : current.estado === 'recibido' ? 0 : current.cantidad
-        : 0;
-      const totalReceivedForStatus = current.estado === 'recibido_tienda_obra'
-        ? Number(current.cantidad_recibida) || current.cantidad
-        : current.cantidad;
-
+      if (
+        current.estado !== newStatus &&
+        (newStatus === 'recibido' || newStatus === 'recibido_tienda_obra')
+      ) {
+        return res.status(400).json({
+          error: 'Registra las unidades y su destino desde la opción "Recepcionar pedido".'
+        });
+      }
+      if (
+        current.estado !== newStatus &&
+        ['recibido', 'recibido_tienda_obra'].includes(current.estado)
+      ) {
+        return res.status(400).json({ error: 'Un pedido recibido no puede cambiarse de estado desde la edición.' });
+      }
+      if (cantidad !== undefined) {
+        const requestedQuantity = Number(cantidad);
+        const alreadyReceived = Number(current.cantidad_recibida) || 0;
+        if (!Number.isFinite(requestedQuantity) || requestedQuantity < alreadyReceived || requestedQuantity <= 0) {
+          return res.status(400).json({
+            error: `La cantidad pedida no puede ser inferior a las ${alreadyReceived} unidades ya recibidas.`
+          });
+        }
+      }
       await execute(
         `UPDATE orders SET 
           estado = ?,
@@ -1738,73 +1776,6 @@ async function startServer() {
           id
         ]
       );
-      if (current.producto_id && current.estado !== newStatus) {
-        if (newStatus === 'recibido') {
-          if (current.estado === 'recibido_tienda_obra' && receivedToWarehouse > 0) {
-            await execute(
-              `UPDATE products
-               SET stock_fuera_almacen = CASE
-                 WHEN COALESCE(stock_fuera_almacen, 0) >= ? THEN COALESCE(stock_fuera_almacen, 0) - ?
-                 ELSE 0
-               END
-               WHERE id = ?`,
-              [receivedToWarehouse, receivedToWarehouse, current.producto_id]
-            );
-          }
-          await execute(`UPDATE products SET estado = 'activo' WHERE id = ?`, [current.producto_id]);
-          if (receivedToWarehouse > 0) {
-            await execute(
-              `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
-               VALUES (?, ?, 'entrada', ?, ?, ?, ?, ?)`,
-              [
-                `mov-ent-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                current.producto_id,
-                receivedToWarehouse,
-                now,
-                req.user!.id,
-                current.proyecto_id || null,
-                `Entrada por cambio de estado del pedido ${current.numero_pedido}`
-              ]
-            );
-          }
-        } else if (newStatus === 'recibido_tienda_obra') {
-          await execute(
-            `UPDATE products SET estado = 'activo', stock_fuera_almacen = COALESCE(stock_fuera_almacen, 0) + ? WHERE id = ?`,
-            [current.cantidad, current.producto_id]
-          );
-        } else if (newStatus === 'por_tramitar' || newStatus === 'pendiente_recibir') {
-          await execute(
-            `UPDATE products SET estado = 'bajo_pedido' WHERE id = ? AND estado <> 'descatalogado'`,
-            [current.producto_id]
-          );
-        }
-      }
-
-      if (newStatus === 'recibido' && current.estado !== 'recibido') {
-        await execute(
-          `UPDATE orders SET
-             cantidad_recibida = ?,
-             cantidad_almacen = COALESCE(cantidad_almacen, 0) + ?,
-             fecha_recepcion = COALESCE(?, ?)
-           WHERE id = ?`,
-          [totalReceivedForStatus, receivedToWarehouse, fecha_recepcion?.trim() || null, now, id]
-        );
-      } else if (newStatus === 'recibido_tienda_obra' && current.estado !== newStatus) {
-        await execute(
-          `UPDATE orders SET cantidad_recibida = cantidad, cantidad_almacen = 0, fecha_recepcion = COALESCE(?, ?) WHERE id = ?`,
-          [fecha_recepcion?.trim() || null, now, id]
-        );
-      }
-
-      if (newStatus === 'cancelado' && current.producto_id) {
-        await execute(
-          `UPDATE products SET estado = 'descatalogado' WHERE id = ? AND NOT EXISTS (
-             SELECT 1 FROM movements WHERE producto_id = ? AND tipo = 'entrada'
-           )`,
-          [current.producto_id, current.producto_id]
-        );
-      }
-
       // If status changed and linked to request, update request history
       if (current.solicitud_id && newStatus !== current.estado) {
         await addRequestHistoryEntry(
@@ -1847,9 +1818,15 @@ async function startServer() {
         nombre_producto,
         stock_minimo,
         descripcion_producto,
+        es_reutilizable,
+        destino,
         albaran
       } = req.body;
 
+      if (destino !== undefined && !['almacen', 'tienda_obra'].includes(destino)) {
+        return res.status(400).json({ error: 'El destino de recepción no es válido' });
+      }
+      const receiveAtWarehouse = destino !== 'tienda_obra';
       const now = new Date().toISOString();
       const previousReceived = Number(order.cantidad_recibida) || 0;
       const remainingQuantity = Math.max(0, Number(order.cantidad) - previousReceived);
@@ -1859,7 +1836,12 @@ async function startServer() {
       }
       const totalReceived = previousReceived + receivedQuantity;
       const orderFullyReceived = totalReceived >= Number(order.cantidad);
-      const warehouseQuantity = (Number(order.cantidad_almacen) || 0) + receivedQuantity;
+      const warehouseQuantity = (Number(order.cantidad_almacen) || 0) + (receiveAtWarehouse ? receivedQuantity : 0);
+      const previousOutside = Math.max(
+        0,
+        previousReceived - (Number(order.cantidad_adjudicada) || 0) - (Number(order.cantidad_almacen) || 0)
+      );
+      const outsideQuantityPending = previousOutside + (receiveAtWarehouse ? 0 : receivedQuantity);
 
       let targetProductId = producto_id || order.producto_id;
       let targetProductCode = order.producto_codigo;
@@ -1877,8 +1859,8 @@ async function startServer() {
 
           await execute(
             `INSERT INTO products (
-              id, codigo, referencia, nombre, descripcion, imagen_url, categoria, stock_minimo, estado, proveedor_id, proyecto_id, fecha_creacion
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              id, codigo, referencia, nombre, descripcion, imagen_url, categoria, stock_minimo, estado, es_reutilizable, proveedor_id, proyecto_id, fecha_creacion
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               newProdId,
               generatedCode,
@@ -1889,6 +1871,7 @@ async function startServer() {
               categoria_producto?.trim() || order.producto_categoria || 'General',
               minStock,
               'activo',
+              es_reutilizable ? 1 : 0,
               order.proveedor_id || null,
               order.proyecto_id || null,
               now
@@ -1907,22 +1890,21 @@ async function startServer() {
         await execute(`UPDATE products SET estado = 'activo' WHERE id = ?`, [targetProductId]);
       }
 
-      const movementId = 'mov-ent-' + Date.now();
-      const movementObs = `Entrada por recepción de pedido ${order.numero_pedido}${albaran ? ` (Albarán: ${albaran})` : ''} de proveedor ${order.proveedor_nombre || 'distribuidor'}`;
+      if (receiveAtWarehouse) {
+        const movementId = 'mov-ent-' + Date.now();
+        const movementObs = `Entrada por recepción de pedido ${order.numero_pedido}${albaran ? ` (Albarán: ${albaran})` : ''} de proveedor ${order.proveedor_nombre || 'distribuidor'}`;
 
-      await execute(
-        `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
-         VALUES (?, ?, 'entrada', ?, ?, ?, ?, ?)`,
-        [
-          movementId,
-          targetProductId,
-          receivedQuantity,
-          now,
-          req.user!.id,
-          order.proyecto_id || null,
-          movementObs
-        ]
-      );
+        await execute(
+          `INSERT INTO movements (id, producto_id, tipo, cantidad, fecha, usuario_id, proyecto_id, observaciones)
+           VALUES (?, ?, 'entrada', ?, ?, ?, NULL, ?)`,
+          [movementId, targetProductId, receivedQuantity, now, req.user!.id, movementObs]
+        );
+      } else {
+        await execute(
+          `UPDATE products SET stock_fuera_almacen = COALESCE(stock_fuera_almacen, 0) + ? WHERE id = ?`,
+          [receivedQuantity, targetProductId]
+        );
+      }
 
       await execute(
         `UPDATE orders SET 
@@ -1936,7 +1918,9 @@ async function startServer() {
           fecha_actualizacion = ?
          WHERE id = ?`,
         [
-          orderFullyReceived ? 'recibido' : 'pendiente_recibir',
+          orderFullyReceived
+            ? outsideQuantityPending > 0 ? 'recibido_tienda_obra' : 'recibido'
+            : 'pendiente_recibir',
           targetProductId,
           targetProductCode,
           totalReceived,
@@ -1949,14 +1933,23 @@ async function startServer() {
       );
 
       if (order.solicitud_id && orderFullyReceived) {
+        const requestStatus = receiveAtWarehouse ? 'preparado' : 'entregado';
         await execute(
-          `UPDATE material_requests SET 
-            estado = 'preparado', 
-            producto_id = ?, 
-            resolucion_notas = 'Material recibido de distribuidor y catalogado en stock. Listo para carga.',
-            fecha_actualizacion = ? 
+          `UPDATE material_requests SET
+            estado = ?,
+            producto_id = ?,
+            resolucion_notas = ?,
+            fecha_actualizacion = ?
            WHERE id = ?`,
-          [targetProductId, now, order.solicitud_id]
+          [
+            requestStatus,
+            targetProductId,
+            receiveAtWarehouse
+              ? 'Material recibido en almacén y catalogado. Listo para carga.'
+              : 'Material recibido directamente en tienda/obra.',
+            now,
+            order.solicitud_id
+          ]
         );
 
         await addRequestHistoryEntry(
@@ -1964,9 +1957,9 @@ async function startServer() {
           req.user!.id,
           req.user!.nombre,
           'cambio_estado',
-          `Material recibido en almacén mediante pedido ${order.numero_pedido}. Entrada registrada (+${receivedQuantity} ${order.unidad}) y catalogado con código ${targetProductCode}.`,
+          `Material recibido mediante pedido ${order.numero_pedido} (${receiveAtWarehouse ? 'almacén' : 'tienda/obra'}): ${receivedQuantity} ${order.unidad}; catalogado con código ${targetProductCode}.`,
           JSON.stringify({ estado: 'pedido_realizado' }),
-          JSON.stringify({ estado: 'preparado', producto_codigo: targetProductCode, cantidad: receivedQuantity })
+          JSON.stringify({ estado: requestStatus, producto_codigo: targetProductCode, cantidad: receivedQuantity })
         );
       }
 
@@ -1978,8 +1971,8 @@ async function startServer() {
         order: updatedOrder,
         product: catalogedProduct,
         message: orderFullyReceived
-          ? `Pedido ${order.numero_pedido} recibido completo: ${receivedQuantity} ${order.unidad} añadidas al almacén.`
-          : `Recepción parcial registrada: ${receivedQuantity} ${order.unidad}. Quedan ${Number(order.cantidad) - totalReceived} pendientes de recibir.`
+          ? `Pedido ${order.numero_pedido} recibido completo: ${receivedQuantity} ${order.unidad} en ${receiveAtWarehouse ? 'el almacén' : 'tienda/obra'}.`
+          : `Recepción parcial registrada: ${receivedQuantity} ${order.unidad} en ${receiveAtWarehouse ? 'el almacén' : 'tienda/obra'}. Quedan ${Number(order.cantidad) - totalReceived} pendientes de recibir.`
       });
     } catch (err: any) {
       console.error('Error al recepcionar pedido:', err);
@@ -2030,8 +2023,16 @@ async function startServer() {
         ]
       );
       await execute(
-        `UPDATE orders SET cantidad_adjudicada = COALESCE(cantidad_adjudicada, 0) + ? WHERE id = ?`,
-        [quantity, order.id]
+        `UPDATE orders SET
+           cantidad_adjudicada = COALESCE(cantidad_adjudicada, 0) + ?,
+           estado = CASE
+             WHEN COALESCE(cantidad_recibida, cantidad) - COALESCE(cantidad_adjudicada, 0) - COALESCE(cantidad_almacen, 0) - ? <= 0
+             THEN 'recibido'
+             ELSE 'recibido_tienda_obra'
+           END,
+           fecha_actualizacion = ?
+         WHERE id = ?`,
+        [quantity, quantity, now, order.id]
       );
       const updatedOrder = await getOrderById(order.id);
       const updatedProduct = await getProductById(product.id);

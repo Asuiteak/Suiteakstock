@@ -18,26 +18,28 @@ import {
   AlertCircle,
   ShoppingBag
 } from 'lucide-react';
-import { Product, Movement, User, Provider } from '../types';
+import { Product, Movement, User, Provider, Project } from '../types';
 import { api } from '../lib/api';
 
 interface ProductDetailModalProps {
   product: Product | null;
   currentUser: User;
   providers?: Provider[];
+  projects: Project[];
   onClose: () => void;
   onOpenNewMovement: (type: 'entrada' | 'salida' | 'reserva', productId: string) => void;
   onEditProduct: (product: Product) => void;
   onDeleteProduct?: (product: Product) => void;
   onOpenRequest?: (productId: string) => void;
   onOrderProduct?: (product: Product) => void;
-  onProductUpdated?: () => void;
+  onProductUpdated?: (message?: string) => void;
 }
 
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   product,
   currentUser,
   providers = [],
+  projects,
   onClose,
   onOpenNewMovement,
   onEditProduct,
@@ -55,6 +57,18 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [savingProvider, setSavingProvider] = useState(false);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [reservationToDelete, setReservationToDelete] = useState<Movement | null>(null);
+  const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
+  const [reservationEditQuantity, setReservationEditQuantity] = useState('');
+  const [reservationEditProject, setReservationEditProject] = useState('');
+  const [savingReservation, setSavingReservation] = useState(false);
+  const [reservationEditError, setReservationEditError] = useState<string | null>(null);
+  const [newReservationQuantity, setNewReservationQuantity] = useState('1');
+  const [newReservationProject, setNewReservationProject] = useState('');
+  const [creatingReservation, setCreatingReservation] = useState(false);
+  const [newReservationError, setNewReservationError] = useState<string | null>(null);
+  const [deletingReservation, setDeletingReservation] = useState(false);
+  const [reservationDeleteError, setReservationDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!product) return;
@@ -100,9 +114,89 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     }
   };
 
+  const handleDeleteReservation = async () => {
+    if (!reservationToDelete) return;
+    setDeletingReservation(true);
+    setReservationDeleteError(null);
+    try {
+      const result = await api.undoMovement(reservationToDelete.id);
+      setMovements((current) => current.filter((movement) => movement.id !== reservationToDelete.id));
+      setReservationToDelete(null);
+      onProductUpdated?.(result.message || 'Reserva eliminada y unidades liberadas.');
+    } catch (err: any) {
+      setReservationDeleteError(err.message || 'No se pudo eliminar la reserva.');
+    } finally {
+      setDeletingReservation(false);
+    }
+  };
+
+  const handleSaveReservation = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingReservationId) return;
+    setSavingReservation(true);
+    setReservationEditError(null);
+    try {
+      const result = await api.updateReservation(editingReservationId, {
+        cantidad: Number(reservationEditQuantity),
+        proyecto_id: reservationEditProject,
+      });
+      setMovements((current) =>
+        current.map((movement) => movement.id === result.movement.id ? result.movement : movement)
+      );
+      setEditingReservationId(null);
+      onProductUpdated?.(result.message);
+    } catch (err: any) {
+      setReservationEditError(err.message || 'No se pudo actualizar la reserva.');
+    } finally {
+      setSavingReservation(false);
+    }
+  };
+
+  const handleCreateReservation = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!product) return;
+    setCreatingReservation(true);
+    setNewReservationError(null);
+    try {
+      const result = await api.createMovement({
+        producto_id: product.id,
+        tipo: 'reserva',
+        cantidad: Number(newReservationQuantity),
+        proyecto_id: newReservationProject,
+        usuario_id: currentUser.id,
+      });
+      setMovements((current) => [result.movement, ...current]);
+      setNewReservationQuantity('1');
+      setNewReservationProject('');
+      onProductUpdated?.(result.message);
+    } catch (err: any) {
+      setNewReservationError(err.message || 'No se pudo crear la reserva.');
+    } finally {
+      setCreatingReservation(false);
+    }
+  };
+
   if (!product) return null;
 
   const isAdmin = currentUser.rol === 'admin';
+  const reservationsByProject = movements
+    .filter((movement) => movement.tipo === 'reserva')
+    .reduce<Record<string, { projectName: string; total: number; movements: Movement[] }>>((groups, movement) => {
+      const key = movement.proyecto_id || 'sin-proyecto';
+      const group = groups[key] || {
+        projectName: movement.proyecto_nombre || 'Sin proyecto',
+        total: 0,
+        movements: [],
+      };
+      group.total += Number(movement.cantidad) || 0;
+      group.movements.push(movement);
+      groups[key] = group;
+      return groups;
+    }, {});
+  const reservationGroups = Object.keys(reservationsByProject).map((projectId) => ({
+    projectId,
+    ...reservationsByProject[projectId],
+  }));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-950/80 backdrop-blur-xs animate-in fade-in">
@@ -211,12 +305,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           <div className="grid grid-cols-3 gap-3">
             <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center">
               <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                Uds existentes
+                En almacén
               </div>
               <div className="text-2xl font-bold text-slate-900 mt-1 font-mono">
                 {product.stock_actual}
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">Almacén y tienda/obra</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Unidades físicas en almacén</div>
             </div>
 
             <div className="p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-xl text-center">
@@ -237,8 +331,22 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               }`}
             >
               <div className="text-[11px] font-semibold uppercase tracking-wider">
-                Uds disponibles en almacén
+                Disponible ahora
               </div>
+
+              {(product.es_reutilizable || product.unidades_pendientes_recibir > 0 || product.stock_fuera_almacen > 0) && (
+                <div className="flex flex-wrap gap-x-5 gap-y-1 px-1 text-xs text-slate-600">
+                  {product.es_reutilizable && (
+                    <span><strong className="text-indigo-800">{product.stock_en_obras}</strong> uds reutilizables en obras</span>
+                  )}
+                  {product.stock_fuera_almacen > 0 && (
+                    <span><strong className="text-slate-800">{product.stock_fuera_almacen}</strong> uds fuera del almacén</span>
+                  )}
+                  {product.unidades_pendientes_recibir > 0 && (
+                    <span><strong className="text-blue-800">{product.unidades_pendientes_recibir}</strong> uds pendientes de recibir</span>
+                  )}
+                </div>
+              )}
               <div className="text-2xl font-bold mt-1 font-mono">
                 {product.stock_disponible}
               </div>
@@ -273,6 +381,171 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <span>Stock en niveles óptimos de seguridad.</span>
             </div>
           )}
+
+          <section className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Reservas por proyecto</h3>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Consulta las unidades asignadas a cada proyecto y gestiona sus reservas.
+                </p>
+              </div>
+              <span className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900">
+                Total: {product.stock_reservado} uds
+              </span>
+            </div>
+            <form onSubmit={handleCreateReservation} className="mb-3 grid grid-cols-1 gap-2 rounded-xl border border-amber-200 bg-white p-3 sm:grid-cols-[1fr_1.5fr_auto] sm:items-end">
+              <label className="text-[11px] font-semibold text-slate-700">
+                Unidades reservadas
+                <input
+                  type="number"
+                  min="0.1"
+                  step="any"
+                  required
+                  max={product.stock_disponible}
+                  value={newReservationQuantity}
+                  onChange={(event) => setNewReservationQuantity(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-xs"
+                  disabled={creatingReservation || product.stock_disponible <= 0}
+                />
+              </label>
+              <label className="text-[11px] font-semibold text-slate-700">
+                Proyecto
+                <select
+                  required
+                  value={newReservationProject}
+                  onChange={(event) => setNewReservationProject(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs"
+                  disabled={creatingReservation}
+                >
+                  <option value="">-- Seleccionar proyecto --</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>{project.nombre}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                disabled={creatingReservation || product.stock_disponible <= 0}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-400 px-3 py-2 text-xs font-bold text-amber-950 transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Bookmark className="h-3.5 w-3.5" />
+                {creatingReservation ? 'Reservando...' : 'Reservar'}
+              </button>
+            </form>
+            {newReservationError && <p role="alert" className="mb-3 text-xs text-rose-700">{newReservationError}</p>}
+            {product.stock_disponible <= 0 && (
+              <p className="mb-3 text-[11px] text-slate-500">No hay unidades disponibles para reservar.</p>
+            )}
+            {reservationGroups.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-amber-200 bg-white/70 px-3 py-4 text-center text-xs text-slate-500">
+                No hay unidades reservadas para proyectos.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {reservationGroups.map((group) => (
+                  <div key={group.projectId} className="rounded-xl border border-amber-200 bg-white p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-bold text-slate-800">
+                        <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+                        <span className="truncate">{group.projectName}</span>
+                      </span>
+                      <span className="font-mono text-sm font-extrabold text-amber-900">{group.total} uds</span>
+                    </div>
+                    {group.movements.map((reservation) => {
+                      const canManage = isAdmin || reservation.usuario_id === currentUser.id;
+                      const isEditing = editingReservationId === reservation.id;
+                      return (
+                        <div key={reservation.id} className="mt-2 border-t border-slate-100 pt-2">
+                          {isEditing ? (
+                            <form onSubmit={handleSaveReservation} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1.5fr_auto] sm:items-end">
+                              <label className="text-[11px] font-semibold text-slate-700">
+                                Unidades reservadas
+                                <input
+                                  type="number"
+                                  min="0.1"
+                                  step="any"
+                                  required
+                                  value={reservationEditQuantity}
+                                  onChange={(event) => setReservationEditQuantity(event.target.value)}
+                                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-xs"
+                                  disabled={savingReservation}
+                                />
+                              </label>
+                              <label className="text-[11px] font-semibold text-slate-700">
+                                Proyecto
+                                <select
+                                  required
+                                  value={reservationEditProject}
+                                  onChange={(event) => setReservationEditProject(event.target.value)}
+                                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs"
+                                  disabled={savingReservation}
+                                >
+                                  <option value="">-- Seleccionar proyecto --</option>
+                                  {projects.map((project) => (
+                                    <option key={project.id} value={project.id}>{project.nombre}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <div className="flex gap-1.5">
+                                <button type="submit" disabled={savingReservation} className="rounded-lg bg-blue-600 px-2.5 py-2 text-[11px] font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+                                  {savingReservation ? 'Guardando...' : 'Guardar'}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={savingReservation}
+                                  onClick={() => {
+                                    setEditingReservationId(null);
+                                    setReservationEditError(null);
+                                  }}
+                                  className="rounded-lg bg-slate-100 px-2.5 py-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                              {reservationEditError && <p role="alert" className="text-xs text-rose-700 sm:col-span-3">{reservationEditError}</p>}
+                            </form>
+                          ) : (
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[11px] text-slate-500">
+                                {reservation.cantidad} uds · {reservation.usuario_nombre || 'Responsable sin nombre'}
+                              </span>
+                              {canManage && (
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingReservationId(reservation.id);
+                                      setReservationEditQuantity(String(reservation.cantidad));
+                                      setReservationEditProject(reservation.proyecto_id || '');
+                                      setReservationEditError(null);
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
+                                  >
+                                    <Edit2 className="h-3.5 w-3.5" /> Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setReservationDeleteError(null);
+                                      setReservationToDelete(reservation);
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" /> Borrar
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* Details & Metadata */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -376,7 +649,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             </button>
             <button
               onClick={() => onOpenNewMovement('salida', product.id)}
-              disabled={product.stock_actual <= 0}
+              disabled={product.stock_disponible <= 0}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors"
             >
               <ArrowUpRight className="w-4 h-4" /> Salida
@@ -428,6 +701,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       <th className="py-2.5 px-3">Proyecto</th>
                       <th className="py-2.5 px-3">Responsable</th>
                       <th className="py-2.5 px-3">Observaciones</th>
+                      <th className="py-2.5 px-3 text-right">Acción</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -463,6 +737,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         <td className="py-2 px-3 text-slate-500 italic truncate max-w-[150px]">
                           {m.observaciones || '-'}
                         </td>
+                        <td className="py-2 px-3 text-right text-slate-400">-</td>
                       </tr>
                     ))}
                   </tbody>
@@ -533,6 +808,47 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl shadow-xs transition-colors"
               >
                 Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {reservationToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-neutral-950/80 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 border border-slate-200 animate-in fade-in">
+            <div className="flex items-center gap-3 mb-3 text-rose-700">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">¿Eliminar esta reserva?</h3>
+                <p className="text-[11px] text-slate-500">Las unidades volverán a estar disponibles.</p>
+              </div>
+            </div>
+            <div className="p-3 mb-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
+              <div><strong>Producto:</strong> {product.nombre}</div>
+              <div><strong>Cantidad:</strong> {reservationToDelete.cantidad}</div>
+              <div><strong>Proyecto:</strong> {reservationToDelete.proyecto_nombre || 'Sin proyecto'}</div>
+            </div>
+            {reservationDeleteError && (
+              <p role="alert" className="mb-3 text-xs text-rose-700">{reservationDeleteError}</p>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingReservation}
+                onClick={() => setReservationToDelete(null)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={deletingReservation}
+                onClick={handleDeleteReservation}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl disabled:opacity-50"
+              >
+                {deletingReservation ? 'Eliminando...' : 'Sí, eliminar reserva'}
               </button>
             </div>
           </div>

@@ -118,7 +118,7 @@ export const AlertsView: React.FC<AlertsViewProps> = ({
 
                     <div className="p-2.5 bg-amber-50/70 border border-amber-200/80 rounded-xl">
                       <span className="text-[10px] font-semibold text-amber-700 block uppercase">
-                        Físico
+                        En almacén
                       </span>
                       <span className="font-mono font-bold text-amber-800 text-base">
                         {p.stock_actual}

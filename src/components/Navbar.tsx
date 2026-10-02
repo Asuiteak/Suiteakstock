@@ -100,15 +100,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-3">
             <button
               onClick={() => onTabChange('dashboard')}
-              className="flex items-center gap-2.5 sm:gap-3 focus:outline-hidden group text-left py-1"
+              className="flex items-center focus:outline-hidden group text-left py-1"
               title="Suiteak"
             >
-              <img
-                src="/suiteak-icon.png"
-                alt="Suiteak"
-                referrerPolicy="no-referrer"
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-contain ring-1 ring-white/10 group-hover:scale-105 transition-transform shrink-0"
-              />
               <img
                 src="/suiteak-logo-white.png"
                 alt="Suiteak"

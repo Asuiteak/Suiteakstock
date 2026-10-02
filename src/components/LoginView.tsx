@@ -37,18 +37,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       <div className="max-w-md w-full">
         {/* Brand Header */}
         <div className="text-center mb-8 flex flex-col items-center justify-center">
-          <div className="inline-flex flex-col sm:flex-row items-center justify-center gap-3.5 py-2 px-3 hover:scale-102 transition-transform">
-            <img
-              src="/suiteak-icon.png"
-              alt="Suiteak Icon"
-              referrerPolicy="no-referrer"
-              className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-contain shadow-2xl ring-1 ring-white/10 shrink-0"
-            />
+          <div className="inline-flex items-center justify-center py-2 px-3 hover:scale-102 transition-transform">
             <img
               src="/suiteak-logo-white.png"
               alt="Suiteak"
               referrerPolicy="no-referrer"
-              className="h-12 sm:h-14 md:h-16 w-auto max-w-[280px] sm:max-w-[340px] object-contain block drop-shadow-xl"
+              className="h-12 sm:h-14 md:h-16 w-auto max-w-full sm:max-w-[340px] object-contain block drop-shadow-xl"
             />
           </div>
         </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Package, AlertCircle, Building2, FolderGit2, Image as ImageIcon, Upload, Sparkles } from 'lucide-react';
-import { Product, Provider, Project, Category } from '../types';
+import { X, Package, AlertCircle, Building2, FolderGit2, Image as ImageIcon, Upload, Sparkles, Bookmark, Edit2, Trash2 } from 'lucide-react';
+import { Movement, Product, Provider, Project, Category, User } from '../types';
 import { api } from '../lib/api';
 
 interface ProductFormModalProps {
@@ -12,6 +12,8 @@ interface ProductFormModalProps {
   projects: Project[];
   products?: Product[];
   categoriesList?: Category[];
+  currentUser: User;
+  onInventoryUpdated?: () => void;
 }
 
 const DEFAULT_CATEGORIES = [
@@ -99,6 +101,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   projects,
   products = [],
   categoriesList = [],
+  currentUser,
+  onInventoryUpdated,
 }) => {
   const [codigo, setCodigo] = useState('');
   const [referencia, setReferencia] = useState('');
@@ -107,6 +111,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [imagenUrl, setImagenUrl] = useState('');
   const [categoria, setCategoria] = useState('Materiales');
   const [customCategoria, setCustomCategoria] = useState('');
+  const [esReutilizable, setEsReutilizable] = useState(false);
   const [estado, setEstado] = useState<'activo' | 'disponible' | 'bajo_pedido' | 'descatalogado'>('activo');
   const [stockMinimo, setStockMinimo] = useState('5');
   const [stockInicial, setStockInicial] = useState('0');
@@ -114,6 +119,16 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [proyectoId, setProyectoId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reservations, setReservations] = useState<Movement[]>([]);
+  const [reservationsLoading, setReservationsLoading] = useState(false);
+  const [reservationQuantity, setReservationQuantity] = useState('1');
+  const [reservationProjectId, setReservationProjectId] = useState('');
+  const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
+  const [editingReservationQuantity, setEditingReservationQuantity] = useState('');
+  const [editingReservationProjectId, setEditingReservationProjectId] = useState('');
+  const [reservationBusy, setReservationBusy] = useState(false);
+  const [reservationError, setReservationError] = useState<string | null>(null);
+  const [availableStock, setAvailableStock] = useState(0);
 
   // Available categories to display in dropdown
   const availableCategories = React.useMemo(() => {
@@ -134,9 +149,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setEstado(productToEdit.estado || 'activo');
       if (availableCategories.includes(productToEdit.categoria)) {
         setCategoria(productToEdit.categoria);
+        setEsReutilizable(productToEdit.es_reutilizable);
         setCustomCategoria('');
       } else {
         setCategoria('Otro');
+        setEsReutilizable(productToEdit.es_reutilizable);
         setCustomCategoria(productToEdit.categoria);
       }
       setStockMinimo(String(productToEdit.stock_minimo));
@@ -153,6 +170,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setDescripcion('');
       setImagenUrl('');
       setCategoria(initialCat);
+      setEsReutilizable(false);
       setCustomCategoria('');
       setEstado('activo');
       setStockMinimo('5');
@@ -163,9 +181,26 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setError(null);
   }, [productToEdit, isOpen, products, categoriesList]);
 
+  useEffect(() => {
+    if (!isOpen || !productToEdit) {
+      setReservations([]);
+      setAvailableStock(0);
+      return;
+    }
+    setReservationsLoading(true);
+    setReservations([]);
+    setAvailableStock(productToEdit.stock_disponible);
+    setReservationError(null);
+    api.getMovements({ producto_id: productToEdit.id })
+      .then((movements) => setReservations(movements.filter((movement) => movement.tipo === 'reserva')))
+      .catch((err) => setReservationError(err.message || 'No se pudieron cargar las reservas.'))
+      .finally(() => setReservationsLoading(false));
+  }, [isOpen, productToEdit?.id]);
+
   // When category changes and we are creating a new product, update the code automatically!
   const handleCategoryChange = (newCat: string) => {
     setCategoria(newCat);
+    if (!productToEdit) setEsReutilizable(newCat.trim().toLowerCase() === 'herramientas');
     if (!productToEdit) {
       const catToUse = newCat === 'Otro' ? (customCategoria || 'Otro') : newCat;
       const autoCode = generateNextProductCode(catToUse, products, categoriesList);
@@ -233,6 +268,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         imagen_url: imagenUrl.trim(),
         categoria: finalCat,
         estado,
+        es_reutilizable: esReutilizable,
         stock_minimo: minStockNum,
         proveedor_id: proveedorId || null,
         proyecto_id: proyectoId || null,
@@ -252,6 +288,67 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setError(err.message || 'Error al guardar el producto');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateReservation = async () => {
+    if (!productToEdit) return;
+    setReservationBusy(true);
+    setReservationError(null);
+    try {
+      const result = await api.createMovement({
+        producto_id: productToEdit.id,
+        tipo: 'reserva',
+        cantidad: Number(reservationQuantity),
+        proyecto_id: reservationProjectId,
+        usuario_id: currentUser.id,
+      });
+      setReservations((current) => [result.movement, ...current]);
+      setAvailableStock(result.product.stock_disponible);
+      setReservationQuantity('1');
+      setReservationProjectId('');
+      onInventoryUpdated?.();
+    } catch (err: any) {
+      setReservationError(err.message || 'No se pudo crear la reserva.');
+    } finally {
+      setReservationBusy(false);
+    }
+  };
+
+  const handleUpdateReservation = async (reservationId: string) => {
+    setReservationBusy(true);
+    setReservationError(null);
+    try {
+      const result = await api.updateReservation(reservationId, {
+        cantidad: Number(editingReservationQuantity),
+        proyecto_id: editingReservationProjectId,
+      });
+      setReservations((current) =>
+        current.map((reservation) => reservation.id === result.movement.id ? result.movement : reservation)
+      );
+      if (result.product) setAvailableStock(result.product.stock_disponible);
+      setEditingReservationId(null);
+      onInventoryUpdated?.();
+    } catch (err: any) {
+      setReservationError(err.message || 'No se pudo actualizar la reserva.');
+    } finally {
+      setReservationBusy(false);
+    }
+  };
+
+  const handleDeleteReservation = async (reservation: Movement) => {
+    if (!window.confirm(`¿Eliminar la reserva de ${reservation.cantidad} uds para ${reservation.proyecto_nombre || 'este proyecto'}?`)) return;
+    setReservationBusy(true);
+    setReservationError(null);
+    try {
+      const result = await api.undoMovement(reservation.id);
+      setReservations((current) => current.filter((item) => item.id !== reservation.id));
+      if (result.product) setAvailableStock(result.product.stock_disponible);
+      onInventoryUpdated?.();
+    } catch (err: any) {
+      setReservationError(err.message || 'No se pudo eliminar la reserva.');
+    } finally {
+      setReservationBusy(false);
     }
   };
 
@@ -399,6 +496,21 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               )}
             </div>
 
+            <label className="flex items-start gap-2.5 p-3 bg-indigo-50 border border-indigo-200 rounded-xl cursor-pointer">
+              <input
+                type="checkbox"
+                checked={esReutilizable}
+                onChange={(e) => setEsReutilizable(e.target.checked)}
+                className="mt-0.5 accent-indigo-600"
+              />
+              <span>
+                <span className="block font-semibold text-indigo-950">Se reutiliza y vuelve de las obras</span>
+                <span className="block text-[11px] text-indigo-800 mt-0.5">
+                  Cuenta las unidades asignadas a proyectos hasta que se registre su devolución al almacén.
+                </span>
+              </span>
+            </label>
+
             <div>
               <label className="block font-semibold text-slate-700 mb-1" htmlFor="prod-stock-minimo">
                 Stock Mínimo (Umbral de Alerta) *
@@ -532,6 +644,173 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               </select>
             </div>
           </div>
+
+          {productToEdit && (
+            <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
+                    <Bookmark className="h-4 w-4 text-amber-700" /> Reservas por proyecto
+                  </h3>
+                  <p className="mt-0.5 text-[11px] text-slate-600">
+                    Asigna unidades y proyecto desde esta ficha de edición.
+                  </p>
+                </div>
+                <span className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900">
+                  Disponibles: {availableStock} uds
+                </span>
+              </div>
+
+              {reservationError && (
+                <p role="alert" className="mb-3 rounded-lg bg-rose-50 p-2.5 text-xs text-rose-700">{reservationError}</p>
+              )}
+
+              <div className="mb-3 grid grid-cols-1 gap-2 rounded-lg border border-amber-200 bg-white p-3 sm:grid-cols-[1fr_1.5fr_auto] sm:items-end">
+                <label className="text-[11px] font-semibold text-slate-700">
+                  Unidades a reservar
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="any"
+                    max={availableStock}
+                    required
+                    value={reservationQuantity}
+                    onChange={(event) => setReservationQuantity(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-2 font-mono text-xs"
+                    disabled={reservationBusy || availableStock <= 0}
+                  />
+                </label>
+                <label className="text-[11px] font-semibold text-slate-700">
+                  Proyecto
+                  <select
+                    required
+                    value={reservationProjectId}
+                    onChange={(event) => setReservationProjectId(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs"
+                    disabled={reservationBusy}
+                  >
+                    <option value="">-- Seleccionar proyecto --</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>{project.nombre}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleCreateReservation}
+                  disabled={reservationBusy || availableStock <= 0 || !reservationProjectId || Number(reservationQuantity) <= 0 || Number(reservationQuantity) > availableStock}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-400 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Bookmark className="h-3.5 w-3.5" />
+                  {reservationBusy ? 'Guardando...' : 'Reservar'}
+                </button>
+              </div>
+
+              {reservationsLoading ? (
+                <p className="py-3 text-center text-xs text-slate-500">Cargando reservas...</p>
+              ) : reservations.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-amber-200 bg-white/70 px-3 py-3 text-center text-xs text-slate-500">
+                  Este producto no tiene unidades reservadas.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {reservations.map((reservation) => {
+                    const canManageReservation = currentUser.rol === 'admin' || reservation.usuario_id === currentUser.id;
+                    return (
+                    <div key={reservation.id} className="rounded-lg border border-amber-200 bg-white p-3">
+                      {editingReservationId === reservation.id ? (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1.5fr_auto] sm:items-end">
+                          <label className="text-[11px] font-semibold text-slate-700">
+                            Unidades reservadas
+                            <input
+                              type="number"
+                              min="0.1"
+                              step="any"
+                              required
+                              value={editingReservationQuantity}
+                              onChange={(event) => setEditingReservationQuantity(event.target.value)}
+                              className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-2 font-mono text-xs"
+                              disabled={reservationBusy}
+                            />
+                          </label>
+                          <label className="text-[11px] font-semibold text-slate-700">
+                            Proyecto
+                            <select
+                              required
+                              value={editingReservationProjectId}
+                              onChange={(event) => setEditingReservationProjectId(event.target.value)}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs"
+                              disabled={reservationBusy}
+                            >
+                              <option value="">-- Seleccionar proyecto --</option>
+                              {projects.map((project) => (
+                                <option key={project.id} value={project.id}>{project.nombre}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateReservation(reservation.id)}
+                              disabled={reservationBusy || !editingReservationProjectId || Number(editingReservationQuantity) <= 0}
+                              className="rounded-lg bg-blue-600 px-2.5 py-2 text-[11px] font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingReservationId(null)}
+                              disabled={reservationBusy}
+                              className="rounded-lg bg-slate-100 px-2.5 py-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-200"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-bold text-slate-800">
+                              {reservation.cantidad} uds · {reservation.proyecto_nombre || 'Sin proyecto'}
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-slate-500">
+                              Responsable: {reservation.usuario_nombre || 'Sin nombre'}
+                            </p>
+                          </div>
+                          {canManageReservation && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingReservationId(reservation.id);
+                                  setEditingReservationQuantity(String(reservation.cantidad));
+                                  setEditingReservationProjectId(reservation.proyecto_id || '');
+                                  setReservationError(null);
+                                }}
+                                disabled={reservationBusy}
+                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" /> Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteReservation(reservation)}
+                                disabled={reservationBusy}
+                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" /> Borrar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
 
           {/* Modal Footer */}
           <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-2">

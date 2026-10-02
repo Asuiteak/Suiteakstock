@@ -272,7 +272,7 @@ export const RequestFormModal: React.FC<RequestFormModalProps> = ({
                   <option value="">-- Elige un producto --</option>
                   {filteredProducts.map((p) => (
                     <option key={p.id} value={p.id}>
-                      [{p.codigo}] {p.nombre} — Disp: {p.stock_disponible} (Físico: {p.stock_actual})
+                      [{p.codigo}] {p.nombre} — Disponible: {p.stock_disponible} (Almacén: {p.stock_actual})
                     </option>
                   ))}
                 </select>

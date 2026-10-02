@@ -175,6 +175,16 @@ export const api = {
     });
   },
 
+  async updateReservation(
+    id: string,
+    data: { cantidad: number; proyecto_id: string }
+  ): Promise<{ success: boolean; message: string; movement: Movement; product: Product | null }> {
+    return request(`/api/movements/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
   // Projects
   async getProjects(): Promise<Project[]> {
     return request<Project[]>('/api/projects');
@@ -417,6 +427,8 @@ export const api = {
       nombre_producto?: string;
       stock_minimo?: number;
       descripcion_producto?: string;
+      es_reutilizable?: boolean;
+      destino?: 'almacen' | 'tienda_obra';
       albaran?: string;
     }
   ): Promise<{ success: boolean; order: Order; product: Product; message: string }> {

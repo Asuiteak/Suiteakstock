@@ -54,6 +54,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
   const [notasRecepcion, setNotasRecepcion] = useState('');
   const [cantidadAdjudicada, setCantidadAdjudicada] = useState('1');
   const [proyectoAdjudicacion, setProyectoAdjudicacion] = useState('');
+  const [destinoRecepcion, setDestinoRecepcion] = useState<'almacen' | 'tienda_obra'>('almacen');
 
   // Fields for new product cataloging
   const [codigoProducto, setCodigoProducto] = useState('');
@@ -61,6 +62,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
   const [categoriaProducto, setCategoriaProducto] = useState('Materiales');
   const [stockMinimo, setStockMinimo] = useState('5');
   const [descripcionProducto, setDescripcionProducto] = useState('');
+  const [esReutilizable, setEsReutilizable] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +91,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
     setProyectoAdjudicacion(order.proyecto_id || '');
     setAlbaran('');
     setNotasRecepcion('');
+    setDestinoRecepcion('almacen');
     setError(null);
 
     // If order is already linked to a catalog product
@@ -114,6 +117,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
     setCodigoProducto(`MAT-${randomSuffix}`);
     setNombreProducto(order.nombre_material);
     setCategoriaProducto('Materiales');
+    setEsReutilizable(false);
     setStockMinimo('5');
     setDescripcionProducto(order.notas ? `Catalogado a partir del pedido ${order.numero_pedido}. Notas: ${order.notas}` : '');
   }, [isOpen, order, products, pendingOutside]);
@@ -185,7 +189,9 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
         payload.categoria_producto = categoriaProducto;
         payload.stock_minimo = Number(stockMinimo) || 5;
         payload.descripcion_producto = descripcionProducto.trim() || undefined;
+        payload.es_reutilizable = esReutilizable;
       }
+      payload.destino = destinoRecepcion;
 
       const result = await api.receiveOrder(order.id, payload);
       onShowToast(result.message || `Recepción del pedido ${order.numero_pedido} registrada`, 'success');
@@ -303,6 +309,21 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
             </div>
           </div>
 
+          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50">
+            <label className="block text-xs font-bold text-emerald-950 mb-1.5">¿Dónde se recibe?</label>
+            <select
+              value={destinoRecepcion}
+              onChange={(e) => setDestinoRecepcion(e.target.value as 'almacen' | 'tienda_obra')}
+              className="w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-xs font-semibold"
+            >
+              <option value="almacen">En el almacén (se suma al stock del almacén)</option>
+              <option value="tienda_obra">En tienda/obra (no se suma al almacén)</option>
+            </select>
+            <p className="mt-1.5 text-[11px] text-emerald-800">
+              Solo la cantidad que llega físicamente al almacén aumenta las unidades disponibles allí.
+            </p>
+          </div>
+
           {/* Cataloging Section Toggle */}
           <div className="pt-2 border-t border-slate-200">
             <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
@@ -359,7 +380,10 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
                   </label>
                   <select
                     value={categoriaProducto}
-                    onChange={(e) => setCategoriaProducto(e.target.value)}
+                    onChange={(e) => {
+                      setCategoriaProducto(e.target.value);
+                      setEsReutilizable(e.target.value.trim().toLowerCase() === 'herramientas');
+                    }}
                     className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
                   >
                     {allCategories.map((c) => (
@@ -410,6 +434,21 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
                   />
                 </div>
               </div>
+
+              <label className="flex items-start gap-2.5 p-3 bg-indigo-50 border border-indigo-200 rounded-xl cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={esReutilizable}
+                  onChange={(e) => setEsReutilizable(e.target.checked)}
+                  className="mt-0.5 accent-indigo-600"
+                />
+                <span>
+                  <span className="block font-semibold text-indigo-950">Se reutiliza y vuelve de las obras</span>
+                  <span className="block text-[11px] text-indigo-800 mt-0.5">
+                    Seguir unidades asignadas a proyectos hasta su devolución al almacén.
+                  </span>
+                </span>
+              </label>
             </div>
           ) : (
             /* Assign to Existing Product */

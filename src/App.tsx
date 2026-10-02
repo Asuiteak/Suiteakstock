@@ -502,6 +502,8 @@ export default function App() {
         projects={projects}
         products={products}
         categoriesList={categories}
+        currentUser={currentUser}
+        onInventoryUpdated={loadAllData}
         onClose={() => {
           setIsProductModalOpen(false);
           setProductToEdit(null);
@@ -517,10 +519,11 @@ export default function App() {
         product={selectedProduct}
         currentUser={currentUser}
         providers={providers}
+        projects={projects}
         onClose={() => setSelectedProductIdForDetail(null)}
-        onProductUpdated={() => {
+        onProductUpdated={(message) => {
           loadAllData();
-          showToast('Proveedor actualizado correctamente', 'success');
+          showToast(message || 'Proveedor actualizado correctamente', 'success');
         }}
         onOpenNewMovement={(type, pId) => {
           setSelectedProductIdForDetail(null);
