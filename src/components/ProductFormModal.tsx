@@ -673,7 +673,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     min="0.1"
                     step="any"
                     max={availableStock}
-                    required
                     value={reservationQuantity}
                     onChange={(event) => setReservationQuantity(event.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-2 font-mono text-xs"
@@ -683,7 +682,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 <label className="text-[11px] font-semibold text-slate-700">
                   Proyecto
                   <select
-                    required
                     value={reservationProjectId}
                     onChange={(event) => setReservationProjectId(event.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs"
@@ -726,7 +724,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                               type="number"
                               min="0.1"
                               step="any"
-                              required
                               value={editingReservationQuantity}
                               onChange={(event) => setEditingReservationQuantity(event.target.value)}
                               className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-2 font-mono text-xs"
@@ -736,7 +733,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                           <label className="text-[11px] font-semibold text-slate-700">
                             Proyecto
                             <select
-                              required
                               value={editingReservationProjectId}
                               onChange={(event) => setEditingReservationProjectId(event.target.value)}
                               className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs"
