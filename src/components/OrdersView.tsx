@@ -306,14 +306,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <ShoppingBag className="w-4 h-4" />
           </div>
           <div>
-            <span className="font-bold">Realización de Pedidos:</span> Los pedidos se tramitan directamente desde el apartado de{' '}
+            <span className="font-bold">Pedidos y stock:</span> Este apartado conserva el seguimiento de compras. Un pedido pendiente no aumenta las existencias; el stock cambia al registrar lo que realmente se recibe. También puedes iniciar una reposición desde{' '}
             <button
               onClick={onNavigateToProducts}
               className="underline font-bold hover:text-amber-950"
             >
               Productos
             </button>
-            . Selecciona cualquier artículo de tu inventario para emitir una reposición con su código y referencia asignados.
+            .             Productos, o crear un pedido de un artículo nuevo.
           </div>
         </div>
         {onNavigateToProducts && (
@@ -497,6 +497,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {pendingOrders.map((order) => {
                 const matchedRequest = requests.find((r) => r.id === order.solicitud_id);
+                const linkedProduct = products.find((product) => product.id === order.producto_id);
                 return (
                   <div
                     key={order.id}
@@ -541,6 +542,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             Cantidad: {order.cantidad} {order.unidad || 'uds'}
                           </span>
                         </div>
+                        {linkedProduct && (
+                          <div className="mt-2 text-[11px] text-slate-600">
+                            Inventario actual: <strong>{linkedProduct.stock_disponible} disponibles</strong>
+                            {' · '}{linkedProduct.stock_reservado} reservadas
+                            {' · '}{linkedProduct.stock_actual} en almacén
+                          </div>
+                        )}
                       </div>
 
                       {/* Distributor Info */}
@@ -740,6 +748,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           {(Number(order.cantidad_recibida) || 0) > 0 && (
                             <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">
                               {order.cantidad_recibida} recibidas
+                            </div>
+                          )}
+                          {products.find((product) => product.id === order.producto_id) && (
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              Disponible en almacén: {products.find((product) => product.id === order.producto_id)?.stock_disponible}
                             </div>
                           )}
                         </td>

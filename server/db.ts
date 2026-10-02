@@ -74,6 +74,7 @@ export async function initDatabase(): Promise<Database | null> {
     console.log('Inicializando esquema PostgreSQL...');
     await createTables();
     await runSql('ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_fuera_almacen REAL NOT NULL DEFAULT 0');
+    await runSql('ALTER TABLE products ADD COLUMN IF NOT EXISTS es_reutilizable INTEGER NOT NULL DEFAULT 0');
     await runSql('ALTER TABLE orders ADD COLUMN IF NOT EXISTS cantidad_recibida REAL NOT NULL DEFAULT 0');
     await runSql('ALTER TABLE orders ADD COLUMN IF NOT EXISTS cantidad_adjudicada REAL NOT NULL DEFAULT 0');
     await runSql('ALTER TABLE orders ADD COLUMN IF NOT EXISTS cantidad_almacen REAL NOT NULL DEFAULT 0');
@@ -177,6 +178,7 @@ async function createTables() {
         categoria TEXT NOT NULL,
         stock_minimo INTEGER NOT NULL DEFAULT 5,
         stock_fuera_almacen REAL NOT NULL DEFAULT 0,
+        es_reutilizable INTEGER NOT NULL DEFAULT 0,
         proveedor_id TEXT,
         proyecto_id TEXT,
         fecha_creacion TEXT NOT NULL,
@@ -337,6 +339,7 @@ async function createTables() {
       imagen_url TEXT,
       categoria TEXT NOT NULL,
       stock_minimo INTEGER NOT NULL DEFAULT 5,
+      es_reutilizable INTEGER NOT NULL DEFAULT 0,
       proveedor_id TEXT,
       proyecto_id TEXT,
       fecha_creacion TEXT NOT NULL,
@@ -455,6 +458,7 @@ async function createTables() {
   try { db.run("ALTER TABLE products ADD COLUMN referencia TEXT"); } catch (e) {}
   try { db.run("ALTER TABLE products ADD COLUMN estado TEXT DEFAULT 'activo'"); } catch (e) {}
   try { await runSql("ALTER TABLE products ADD COLUMN stock_fuera_almacen REAL NOT NULL DEFAULT 0"); } catch (e) {}
+  try { await runSql("ALTER TABLE products ADD COLUMN es_reutilizable INTEGER NOT NULL DEFAULT 0"); } catch (e) {}
   try { await runSql("ALTER TABLE orders ADD COLUMN cantidad_recibida REAL NOT NULL DEFAULT 0"); } catch (e) {}
   try { await runSql("ALTER TABLE orders ADD COLUMN cantidad_adjudicada REAL NOT NULL DEFAULT 0"); } catch (e) {}
   try { await runSql("ALTER TABLE orders ADD COLUMN cantidad_almacen REAL NOT NULL DEFAULT 0"); } catch (e) {}
@@ -868,7 +872,8 @@ export async function getProductStockMetrics(productId: string): Promise<{
   const rows = await queryAll<{ tipo: string; total: number }>(
     `SELECT tipo, SUM(cantidad) as total 
      FROM movements 
-     WHERE producto_id = ? 
+     WHERE producto_id = ?
+       AND (tipo <> 'salida' OR COALESCE(observaciones, '') NOT LIKE '%desde tienda/obra%')
      GROUP BY tipo`,
     [productId]
   );
@@ -889,7 +894,7 @@ export async function getProductStockMetrics(productId: string): Promise<{
   );
   const stock_fuera_almacen = Number(product?.stock_fuera_almacen) || 0;
   const stock_almacen = entradas - salidas;
-  const stock_actual = stock_almacen + stock_fuera_almacen;
+  const stock_actual = stock_almacen;
   const stock_disponible = Math.max(0, stock_almacen - reservas);
 
   return {
@@ -913,8 +918,13 @@ export async function getProducts(options: {
       COALESCE((SELECT SUM(cantidad) FROM movements WHERE producto_id = p.id AND tipo = 'entrada'), 0) as total_entradas,
       COALESCE((SELECT SUM(cantidad) FROM movements WHERE producto_id = p.id AND tipo = 'salida' AND COALESCE(observaciones, '') NOT LIKE '%desde tienda/obra%'), 0) as total_salidas,
       COALESCE((SELECT SUM(cantidad) FROM movements WHERE producto_id = p.id AND tipo = 'reserva'), 0) as total_reservas
-      ,COALESCE((SELECT SUM(cantidad) FROM orders WHERE producto_id = p.id AND estado NOT IN ('cancelado', 'descatalogado')), 0) as unidades_solicitadas
-      ,COALESCE((SELECT SUM(cantidad_recibida - cantidad_adjudicada - cantidad_almacen) FROM orders WHERE producto_id = p.id AND estado = 'recibido_tienda_obra'), 0) as unidades_pendientes_almacen
+      ,COALESCE((SELECT SUM(CASE WHEN tipo = 'salida' THEN cantidad ELSE -cantidad END)
+        FROM movements
+        WHERE producto_id = p.id AND proyecto_id IS NOT NULL AND tipo IN ('salida', 'entrada')
+          AND (tipo = 'salida' OR LOWER(COALESCE(observaciones, '')) NOT LIKE '%pedido%')), 0) as stock_en_obras
+      ,COALESCE((SELECT SUM(CASE WHEN cantidad - cantidad_recibida > 0 THEN cantidad - cantidad_recibida ELSE 0 END)
+        FROM orders WHERE producto_id = p.id
+          AND estado IN ('por_tramitar', 'pendiente_recibir', 'pendiente', 'pedido', 'en_camino')), 0) as unidades_pendientes_recibir
     FROM products p
     LEFT JOIN providers pr ON p.proveedor_id = pr.id
     LEFT JOIN projects proj ON p.proyecto_id = proj.id
@@ -950,7 +960,10 @@ export async function getProducts(options: {
 
     const stock_fuera_almacen = Number(r.stock_fuera_almacen) || 0;
     const stock_almacen = totalEntradas - totalSalidas;
-    const stock_actual = stock_almacen + stock_fuera_almacen;
+    const stock_actual = stock_almacen;
+    const stock_en_obras = r.es_reutilizable
+      ? Math.max(0, Number(r.stock_en_obras) || 0)
+      : 0;
     const stock_reservado = totalReservas;
     const stock_disponible = Math.max(0, stock_almacen - stock_reservado);
     const en_alerta = stock_disponible <= r.stock_minimo;
@@ -965,6 +978,7 @@ export async function getProducts(options: {
       categoria: r.categoria,
       stock_minimo: Number(r.stock_minimo),
       estado: r.estado || 'activo',
+      es_reutilizable: Number(r.es_reutilizable) === 1,
       proveedor_id: r.proveedor_id,
       proveedor_nombre: r.proveedor_nombre,
       proyecto_id: r.proyecto_id,
@@ -972,8 +986,8 @@ export async function getProducts(options: {
       fecha_creacion: r.fecha_creacion,
       stock_actual,
       stock_fuera_almacen,
-      unidades_solicitadas: Number(r.unidades_solicitadas) || 0,
-      unidades_pendientes_almacen: Number(r.unidades_pendientes_almacen) || 0,
+      stock_en_obras,
+      unidades_pendientes_recibir: Number(r.unidades_pendientes_recibir) || 0,
       stock_reservado,
       stock_disponible,
       en_alerta

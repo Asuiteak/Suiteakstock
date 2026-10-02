@@ -51,16 +51,17 @@ export interface Product {
   categoria: string;
   stock_minimo: number;
   estado?: ProductStatus;
+  es_reutilizable: boolean;
   proveedor_id?: string;
   proveedor_nombre?: string;
   proyecto_id?: string;
   proyecto_nombre?: string;
   fecha_creacion: string;
   // Computed stock fields:
-  stock_actual: number;      // Total de unidades existentes (almacén + tienda/obra)
+  stock_actual: number;      // Unidades físicas en el almacén
   stock_fuera_almacen: number; // Unidades recibidas en tienda/obra
-  unidades_solicitadas: number;
-  unidades_pendientes_almacen: number;
+  stock_en_obras: number; // Unidades reutilizables asignadas actualmente a proyectos
+  unidades_pendientes_recibir: number;
   stock_reservado: number;   // Total reservado actualmente
   stock_disponible: number;  // Físico - reservado
   en_alerta: boolean;        // stock_disponible <= stock_minimo

@@ -95,9 +95,9 @@ export const MovementFormModal: React.FC<MovementFormModalProps> = ({
     }
 
     if (selectedProduct) {
-      if (tipo === 'salida' && qty > selectedProduct.stock_actual) {
+      if (tipo === 'salida' && qty > selectedProduct.stock_disponible) {
         setError(
-          `Stock insuficiente para salida. Stock físico en almacén: ${selectedProduct.stock_actual}, solicitado: ${qty}.`
+          `Stock disponible insuficiente. Hay ${selectedProduct.stock_disponible} unidades libres y ${selectedProduct.stock_reservado} reservadas.`
         );
         return;
       }
@@ -256,10 +256,15 @@ export const MovementFormModal: React.FC<MovementFormModalProps> = ({
               <option value="">-- Seleccionar producto del catálogo --</option>
               {products.map((p) => (
                 <option key={p.id} value={p.id}>
-                  [{p.codigo}] {p.nombre} (Disp: {p.stock_disponible} / Físico: {p.stock_actual})
+                  [{p.codigo}] {p.nombre} (Disponible: {p.stock_disponible} / Almacén: {p.stock_actual})
                 </option>
               ))}
             </select>
+            {tipo === 'entrada' && selectedProduct?.es_reutilizable && (
+              <p className="mt-1 text-[11px] text-slate-500">
+                Si devuelves unidades reutilizables desde una obra, selecciona aquí el proyecto para actualizar cuántas siguen asignadas.
+              </p>
+            )}
           </div>
 
           {/* Real-time Stock Info for selected product */}
@@ -276,7 +281,7 @@ export const MovementFormModal: React.FC<MovementFormModalProps> = ({
 
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="bg-white p-1.5 rounded-md border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block">Stock Físico</span>
+                  <span className="text-[10px] text-slate-500 block">En almacén</span>
                   <span className="font-bold font-mono text-slate-800">{selectedProduct.stock_actual}</span>
                 </div>
                 <div className="bg-amber-50/70 p-1.5 rounded-md border border-amber-200">
@@ -295,10 +300,10 @@ export const MovementFormModal: React.FC<MovementFormModalProps> = ({
                 </div>
               </div>
 
-              {tipo === 'salida' && selectedProduct.stock_actual <= 0 && (
+              {tipo === 'salida' && selectedProduct.stock_disponible <= 0 && (
                 <div className="mt-2 text-rose-600 text-[11px] flex items-center gap-1 font-semibold">
                   <AlertCircle className="w-3.5 h-3.5" />
-                  No hay stock físico para dar salida. Debes registrar una entrada primero.
+                  No quedan unidades libres para retirar: el stock está agotado o reservado.
                 </div>
               )}
             </div>
@@ -354,7 +359,7 @@ export const MovementFormModal: React.FC<MovementFormModalProps> = ({
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:bg-white focus:ring-1 focus:ring-[#EA1D24] focus:outline-hidden"
             >
               <option value="">
-                {tipo === 'entrada' ? '-- Almacén central (sin proyecto asignado) --' : '-- Seleccionar proyecto destino --'}
+                {tipo === 'entrada' ? '-- Almacén central (sin proyecto asignado) --' : tipo === 'salida' ? '-- Seleccionar proyecto destino --' : '-- Seleccionar proyecto destino --'}
               </option>
               {projects.map((proj) => (
                 <option key={proj.id} value={proj.id}>
